@@ -5,6 +5,7 @@ using System.IO.Enumeration;
 using System.IO.Ports;
 using SixLabors.ImageSharp;
 using System.Text.RegularExpressions;
+using System.Text;
 
 class Program
 {
@@ -15,8 +16,8 @@ class Program
     private static readonly string receivedImgFilename = myPictures + "\\grayscale test images\\received images\\test1.png";
     private static readonly string receivedTxtFilename = myPictures + "\\grayscale test images\\received images\\test1.txt";
 
-    private const string transmitterCOM = "COM11";
-    private const string receiverCOM = "COM3";
+    private const string transmitterCOM = "COM6";
+    private const string receiverCOM = "COM9";
 
     private const int baudRate = 1000000;
     private const int dataBits = 8;
@@ -26,8 +27,7 @@ class Program
     private const int flagBytesCount = 5;
     private const byte bytesFlag = 0x01; // flag => [0] - 0x01, [1,2] - byte count
     private const byte imageFlag = 0x02; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
-    private const byte stringFlag = 0x03; // flag => [0] - 0x03
-    // after receiving string flag, read string until /n (ReadLine)
+    private const byte stringFlag = 0x03; // flag => [0] - 0x03, [1,...,4] - string length
     private const byte image3BitFlag = 0x04; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
     private const byte ackFlag = 0xFF; // flag => [0] - 0xFF, [1,2] - ack count (ex. for image - remaining row byte count)
 
@@ -40,7 +40,6 @@ class Program
 
     static void Main(string[] args)
     {
-        Console.WriteLine(Environment.CurrentDirectory);
         byte[][] img = ConvertImageForInkplate(imgFilename);
         byte[] img3Bit = Convert3BitImageForInkplate(imgFilename);
         transmitterPort = OpenPort(transmitterCOM);
@@ -73,9 +72,9 @@ class Program
                     var elapsedMs = watch.ElapsedMilliseconds;
                     Console.WriteLine($"Time taken to send image: {elapsedMs}ms");
                 }
-                else if (Regex.IsMatch(input, @"send \d+", RegexOptions.IgnoreCase)) // ex. send 5, or send 30...
+                else if (Regex.IsMatch(input, @"^\s*send \d+\s*$", RegexOptions.IgnoreCase)) // ex. send 5, or send   30...
                 {
-                    int byteCount = Convert.ToInt32(input.Split(" ")[1]);
+                    int byteCount = Convert.ToInt32(input.Trim().Split(" ")[1]);
                     byte[] data = GetTestBytes(byteCount);
                     Console.Write("Sent: ");
                     for (int i = 0; i < data.Length; i++)
@@ -84,6 +83,11 @@ class Program
                     }
                     Console.WriteLine();
                     SendByteArray(data);
+                }
+                else if (Regex.IsMatch(input, @"\s*send [\w\s]+"))
+                {
+                    input = input.Trim().Substring(new string("send ").Length);
+                    SendString(input);
                 }
             }
         }
@@ -100,7 +104,7 @@ class Program
 
 
 
-    static void SendByteArray(byte[] data)
+    static void SendByteArray(byte[] data, bool sendFlag = true)
     {
         if (data.Length > Math.Pow(2, 32))
             throw new ArgumentException("Size of byte array is too big");
@@ -116,8 +120,12 @@ class Program
         flag[3] = dataSize[2];
         flag[4] = dataSize[3];
 
-        transmitterPort.Write(flag, 0, flag.Length);
-        Thread.Sleep(5);
+        if (sendFlag)
+        {
+            transmitterPort.Write(flag, 0, flag.Length);
+            Thread.Sleep(5);
+        }
+        
 
         // start sending data
         int count = data.Length;
@@ -172,7 +180,6 @@ class Program
         for (int i = 0; i < height; i++) // for each row
         {
             // send the row
-            Console.WriteLine("sending: " + i);
             int count = width;
             while (count > 0)
             {
@@ -249,6 +256,29 @@ class Program
 
 
 
+    static void SendString(string toSend)
+    {
+        byte[] lengthAsBytes = BitConverter.GetBytes(toSend.Length);
+
+        Array.Reverse(lengthAsBytes);
+
+        byte[] flag = new byte[flagBytesCount];
+        flag[0] = stringFlag;
+        flag[1] = lengthAsBytes[0];
+        flag[2] = lengthAsBytes[1];
+        flag[3] = lengthAsBytes[2];
+        flag[4] = lengthAsBytes[3];
+
+        transmitterPort.Write(flag, 0, flag.Length);
+        Thread.Sleep(5);
+
+        byte[] bytesToSend = Encoding.UTF8.GetBytes(toSend);
+
+        SendByteArray(bytesToSend, false);
+    }
+
+
+
     static void ReceiveData()
     {
         try
@@ -265,19 +295,42 @@ class Program
                     if (flag[0] == bytesFlag)
                     {
                         Console.ForegroundColor = ConsoleColor.Blue;
-                        ReceiveBytes(flag);
+                        int byteCount = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
+                        Console.WriteLine("bytec: " + byteCount);
+                        byte[] received = ReceiveBytes(byteCount);
+                        Console.Write("Received: ");
+                        for (int i = 0; i < received.Length; i++)
+                        {
+                            Console.Write("0x" + received[i].ToString("X2") + " ");
+                        }
+                        Console.WriteLine();
                         Console.ForegroundColor = ConsoleColor.White;
                     }
                     else if (flag[0] == imageFlag)
                     {
                         Console.ForegroundColor = ConsoleColor.Blue;
-                        ReceiveImage(flag);
+                        int height = (flag[1] << 8) | flag[2];
+                        int width = (flag[3] << 8) | flag[4];
+                        Console.WriteLine("Height: " + height);
+                        Console.WriteLine("Width: " + width);
+                        ReceiveImage(height, width);
                         Console.ForegroundColor = ConsoleColor.White;
                     }
                     else if (flag[0] == image3BitFlag)
                     {
                         Console.ForegroundColor = ConsoleColor.Blue;
-                        ReceiveImage3Bit(flag);
+                        int height = (flag[1] << 8) | flag[2];
+                        int width = (flag[3] << 8) | flag[4];
+                        Console.WriteLine("Height: " + height);
+                        Console.WriteLine("Width: " + width);
+                        ReceiveImage3Bit(height, width);
+                        Console.ForegroundColor = ConsoleColor.White;
+                    }
+                    else if (flag[0] == stringFlag)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Blue;
+                        int length = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
+                        ReceiveString(length);
                         Console.ForegroundColor = ConsoleColor.White;
                     }
                 }
@@ -297,10 +350,8 @@ class Program
 
 
 
-    static void ReceiveBytes(byte[] flag)
+    static byte[] ReceiveBytes(int byteCount)
     {
-        int byteCount = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
-        Console.WriteLine("bytec: " + byteCount);
         byte[] received = new byte[byteCount];
         int count = byteCount;
         while (count > 0)
@@ -318,50 +369,34 @@ class Program
 
             count -= bytesToReceive;
         }
-        Console.Write("Received: ");
-        for (int i = 0; i < received.Length; i++)
-        {
-            Console.Write("0x" + received[i].ToString("X2") + " ");
-        }
-        Console.WriteLine();
+
+        return received;
     }
 
 
 
-    static void ReceiveImage(byte[] flag)
+    static void ReceiveImage(int height, int width)
     {
-        int height = (flag[1] << 8) | flag[2];
-        int width = (flag[3] << 8) | flag[4];
-        Console.WriteLine("Height: " + height);
-        Console.WriteLine("Width: " + width);
         byte[][] img = new byte[height][];
         for (int i = 0; i < height; i++)
         {
             img[i] = new byte[width];
         }
 
+        int percentage = 1;
         for (int i = 0; i < height; i++)
         {
             int count = width;
-            while (count > 0)
+
+            Array.Copy(ReceiveBytes(count), 0, img[i], 0, count);
+
+            if ((i + 1) * width >= width * height * percentage / 100)
             {
-                int bytesToReceive = 0;
-                // Take at most a 32 byte chunk
-                if (count > 32)
-                    bytesToReceive = 32;
-                else
-                    bytesToReceive = count;
+                // for small image sizes, one row might skip over 2 or more percentage points
+                while ((i + 1) * width >= width * height * (percentage + 1) / 100) percentage++;
 
-                while (receiverPort.BytesToRead < bytesToReceive) ;
-
-                receiverPort.Read(img[i], width - count, bytesToReceive);
-
-                count -= bytesToReceive;
+                Console.WriteLine($"{percentage++}%");
             }
-            if (i == height / 4) Console.WriteLine("25%");
-            if (i == height / 2) Console.WriteLine("50%");
-            if (i == height * 3 / 4) Console.WriteLine("75%");
-            Console.WriteLine(i);
         }
 
         Image<Rgba32> image = ImageHandler.LoadImage(img);
@@ -373,12 +408,8 @@ class Program
 
 
 
-    static void ReceiveImage3Bit(byte[] flag)
+    static void ReceiveImage3Bit(int height, int width)
     {
-        int height = (flag[1] << 8) | flag[2];
-        int width = (flag[3] << 8) | flag[4];
-        Console.WriteLine("Height: " + height);
-        Console.WriteLine("Width: " + width);
         byte[] img = new byte[width * height / 2];
 
         int count = img.Length;
@@ -409,6 +440,19 @@ class Program
         image.Save(receivedImgFilename);
         image.WriteAsByteMatrixToTextFile(receivedTxtFilename);
         Console.WriteLine("saved");
+    }
+
+
+
+    static void ReceiveString(int length)
+    {
+        byte[] stringData = new byte[length];
+
+        stringData = ReceiveBytes(length);
+
+        string received = Encoding.UTF8.GetString(stringData);
+
+        Console.WriteLine("Received: " + received);
     }
 
 

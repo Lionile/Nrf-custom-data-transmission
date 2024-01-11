@@ -4,11 +4,11 @@
 
 RF24 radio(7, 8); // CE, CSN
 
-const uint64_t address = 0xE8E8F0F0E1LL;
+const uint8_t address[] = "00050";
 const int flagBytesCount = 5;
 byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,2] - byte count,
 byte transmitImageFlag = 0x02; // [0] - 0x02, [1,2] - image height, [3,4] - image width
-byte transmitStringFlag = 0x03; // after receiving string flag, read string until /n (ReadLine)
+byte transmitStringFlag = 0x03; // [0] - 0x03, [1,...,4] - string length
 byte transmit3BitImageFlag = 0x04;
 byte ackFlag = 0xFF; // ack - {0xFF, 0xXX}, 0xXX - whatever the sent flag was
 
@@ -21,6 +21,7 @@ void setup() {
 
   radio.begin();
   radio.setDataRate(RF24_2MBPS);
+
   radio.setRetries(5, 30); // 1500us delay between retries, 30 retries
   radio.openWritingPipe(address);
   radio.stopListening(); // sets the nrf to transmitting mode
@@ -34,9 +35,9 @@ void loop() {
     if(flag[0] == transmitBytesFlag){
       radio.write(flag, sizeof(flag));
       delay(5);//wait for ack
+      // read second, third, fourth and fifth byte as integer and call transmitBytes
       transmitBytes(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
-      //(flag[1] << 8) | flag[2] - read second and third byte as integer
     }
     else if(flag[0] == transmitImageFlag){
       radio.write(flag, sizeof(flag));
@@ -56,8 +57,26 @@ void loop() {
       //(flag[1] << 8) | flag[2] - read second and third byte as integer
       //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
     }
+    else if(flag[0] == transmitStringFlag){
+      radio.write(flag, sizeof(flag));
+      delay(5);
+      
+      // read second, third, fourth and fifth byte as integer and call transmitString
+      transmitString(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
+                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
+    }
   }
   delay(2);
+}
+
+void sendAck(unsigned long count){
+  byte ackFlagMessage[flagBytesCount];
+  ackFlagMessage[0] = ackFlag;
+  ackFlagMessage[1] = (byte)(count >> 24);
+  ackFlagMessage[2] = (byte)(count >> 16);
+  ackFlagMessage[3] = (byte)(count >> 8);
+  ackFlagMessage[4] = (byte)(count & 0xFF);
+  Serial.write(ackFlagMessage, sizeof(ackFlagMessage));
 }
 
 void transmitImage(int height, int width){
@@ -69,8 +88,6 @@ void transmitImage(int height, int width){
 
 void transmitImage3Bit(int height, int width){
   unsigned long count = (unsigned long)height * (unsigned long)width /2;
-  Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
-  Serial.println("count: " + String(count));
   transmitBytes(count);
 }
 
@@ -93,15 +110,13 @@ void transmitBytes(unsigned long count){
     printAsHex(data, sizeof(data));*/
     radio.write(data, sizeof(data));
     count -= bytesToSend;
-    byte ackFlagMessage[flagBytesCount];
-    ackFlagMessage[0] = ackFlag;
-    ackFlagMessage[1] = (byte)(count >> 24);
-    ackFlagMessage[2] = (byte)(count >> 16);
-    ackFlagMessage[3] = (byte)(count >> 8);
-    ackFlagMessage[4] = (byte)(count & 0xFF);
-    Serial.write(ackFlagMessage, sizeof(ackFlagMessage));
+    sendAck(count);
     delay(1); // wait for ack
   }
+}
+
+void transmitString(unsigned long length){
+  transmitBytes(length);
 }
 
 

@@ -4,11 +4,11 @@
 
 RF24 radio(7, 8); // CE, CSN
 
-const uint64_t address = 0xE8E8F0F0E1LL;
+const uint8_t address[] = "00050";
 int flagBytesCount = 5;
 byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,2] - byte count,
 byte transmitImageFlag = 0x02; // [0] - 0x02, [1,2] - image height, [3,4] - image width
-byte transmitStringFlag = 0x03; // after receiving string flag, read string until /n (ReadLine)
+byte transmitStringFlag = 0x03; // [0] - 0x03, [1,...,4] - string length
 byte transmit3BitImageFlag = 0x04;
 byte ackFlag = 0xFF; // ack - {0xFF, 0xXX}, 0xXX - whatever the sent flag was
 
@@ -29,6 +29,7 @@ void loop() {
     if(flag[0] == transmitBytesFlag){
       // sendAck(data);
       Serial.write(flag, sizeof(flag));
+      // read second, third, fourth and fifth byte as integer and call receiveBytes
       receiveBytes(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
     }
@@ -36,17 +37,28 @@ void loop() {
       // sendAck(data);
       Serial.write(flag, sizeof(flag));
       receiveImage((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
+      //(flag[1] << 8) | flag[2] - read second and third byte as integer
+      //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
     }
     else if(flag[0] == transmit3BitImageFlag){
       // sendAck(data);
       Serial.write(flag, sizeof(flag));
       receiveImage3Bit((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
+      //(flag[1] << 8) | flag[2] - read second and third byte as integer
+      //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
+    }
+    else if(flag[0] == transmitStringFlag){
+       // sendAck(data);
+      Serial.write(flag, sizeof(flag));
+      // read second, third, fourth and fifth byte as integer and call receiveString
+      receiveString(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
+                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
     }
   }
 }
 
 void sendAck(byte data[]){
-
+  // can't get manual ack to work
 }
 
 void receiveImage(int height, int width){
@@ -82,6 +94,10 @@ void receiveBytes(unsigned long count){
     Serial.write(data, sizeof(data));
     count -= bytesToReceive;
   }
+}
+
+void receiveString(unsigned long length){
+  receiveBytes(length);
 }
 
 
