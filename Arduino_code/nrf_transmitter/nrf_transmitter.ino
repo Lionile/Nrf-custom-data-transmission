@@ -1,11 +1,11 @@
 #include <SPI.h>
-#include <nRF24L01.h>
 #include <RF24.h>
 
 RF24 radio(7, 8); // CE, CSN
 
 const uint8_t address[] = "00050";
-const int flagBytesCount = 5;
+const unsigned int flagBytesCount = 5;
+const unsigned int payloadSize = 30; // need 2 bytes free for payloadCount
 byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,2] - byte count,
 byte transmitImageFlag = 0x02; // [0] - 0x02, [1,2] - image height, [3,4] - image width
 byte transmitStringFlag = 0x03; // [0] - 0x03, [1,...,4] - string length
@@ -14,18 +14,31 @@ byte ackFlag = 0xFF; // ack - {0xFF, 0xXX}, 0xXX - whatever the sent flag was
 
 byte transmitStringFlagMessage[flagBytesCount];
 
+void sendAck(unsigned long count);
+void transmitImage(int height, int width);
+void transmitImage3Bit(int height, int width);
+void transmitBytes(unsigned long count);
+void transmitString(unsigned long length);
+void printAsHex(byte data[], int arrSize);
+
+
+
 void setup() {
   transmitStringFlagMessage[0] = transmitStringFlag;
 
   Serial.begin(1000000);
 
   radio.begin();
-  radio.setDataRate(RF24_2MBPS);
-
-  radio.setRetries(5, 30); // 1500us delay between retries, 30 retries
+  radio.setPALevel(RF24_PA_LOW); // RF24_PA_MAX is default.
+  radio.enableDynamicPayloads();
+  radio.enableDynamicAck();
+  radio.setChannel(85);
   radio.openWritingPipe(address);
-  radio.stopListening(); // sets the nrf to transmitting mode
+  radio.openReadingPipe(1, address);
+  radio.stopListening(); // put radio in TX mode
 }
+
+
 
 void loop() {
   if (Serial.available()) {
@@ -42,8 +55,6 @@ void loop() {
     else if(flag[0] == transmitImageFlag){
       radio.write(flag, sizeof(flag));
       delay(5);
-      int height = (flag[1] << 8) | flag[2];
-      int width = (flag[3] << 8) | flag[4];
       transmitImage((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
       //(flag[1] << 8) | flag[2] - read second and third byte as integer
       //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
@@ -51,8 +62,6 @@ void loop() {
     else if(flag[0] == transmit3BitImageFlag){
       radio.write(flag, sizeof(flag));
       delay(5);
-      int height = (flag[1] << 8) | flag[2];
-      int width = (flag[3] << 8) | flag[4];
       transmitImage3Bit((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
       //(flag[1] << 8) | flag[2] - read second and third byte as integer
       //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
@@ -69,6 +78,8 @@ void loop() {
   delay(2);
 }
 
+
+
 void sendAck(unsigned long count){
   byte ackFlagMessage[flagBytesCount];
   ackFlagMessage[0] = ackFlag;
@@ -79,6 +90,8 @@ void sendAck(unsigned long count){
   Serial.write(ackFlagMessage, sizeof(ackFlagMessage));
 }
 
+
+
 void transmitImage(int height, int width){
   for(int i = 0; i < height; i++){
     int count = width;
@@ -86,38 +99,87 @@ void transmitImage(int height, int width){
   }
 }
 
+
+
 void transmitImage3Bit(int height, int width){
   unsigned long count = (unsigned long)height * (unsigned long)width /2;
   transmitBytes(count);
 }
 
+
+
 void transmitBytes(unsigned long count){
+  unsigned long payloadCount = 0; // current payload index
+
   // Keep receiving bytes until you get all of it
   while(count > 0){
     int bytesToSend = 0;
-    // Take at most a 32 byte chunk
-    if(count > 32)
-      bytesToSend = 32;
+    // Take at most *payloadSize* byte chunk
+    if(count > payloadSize)
+      bytesToSend = payloadSize;
     else
       bytesToSend = count;
 
-    byte data[bytesToSend];
+    byte data[bytesToSend + 2];
     // TODO: only wait for a certain ammount of time (flush te buffer if exceeded maybe?)
     while (Serial.available() < bytesToSend); // wait until the whole packet comes
 
-    Serial.readBytes(data, sizeof(data));
+    Serial.readBytes(data, bytesToSend);
+    data[bytesToSend] = (byte)(payloadCount >> 8);
+    data[bytesToSend + 1] = (byte)(payloadCount & 0xFF);
+
     /*Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
     printAsHex(data, sizeof(data));*/
-    radio.write(data, sizeof(data));
+    bool sent = radio.write(data, sizeof(data));
+    while(!sent){
+      delay(1);
+      Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
+      Serial.println("failed to send payload");
+      sent = radio.write(data, sizeof(data));
+    }
     count -= bytesToSend;
+    
+    // wait for ack from the receiver
+    // TODO: if no ack is received in 200ms, send the data again
+    radio.startListening();                  // put in RX mode
+    unsigned long start_timeout = millis();
+    while (!radio.available()) {             // wait for response
+      if (millis() - start_timeout > 200){    // wait for 200 ms
+        Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
+        Serial.println("no ack");
+        break; // TODO: instead of break, send the data again
+      }
+    }
+    radio.stopListening(); // put back in TX mode
+
+    uint8_t pipe;
+    if (radio.available(&pipe)) {  // is there an ack
+      byte received[flagBytesCount];
+      radio.read(&received, sizeof(received));
+      unsigned long receivedPayloadCount = (unsigned long)received[1] << 8 | (unsigned long)received[2];
+      if(receivedPayloadCount != payloadCount) // check if the ack isn't for the current payload
+        return; // TODO: instead of return, send the data again
+      
+      /*Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
+      Serial.print("received ack: ");
+      printAsHex(received, sizeof(received));*/
+    }
+    else{
+      return; // TODO: instead of return, send the data again
+    }
+    
+    
+    payloadCount++;
     sendAck(count);
-    delay(1); // wait for ack
   }
 }
+
+
 
 void transmitString(unsigned long length){
   transmitBytes(length);
 }
+
 
 
 void printAsHex(byte data[], int arrSize){

@@ -1,23 +1,21 @@
 ﻿using NRF_Transmitter;
-using System.Collections;
-using System.Data;
-using System.IO.Enumeration;
 using System.IO.Ports;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using System.Text.RegularExpressions;
 using System.Text;
 
 class Program
 {
     private static readonly string myPictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-    private static readonly string imgFilename = myPictures +  "\\grayscale test images\\test1.png";
-    private static readonly string newFilename = myPictures + "\\grayscale test images\\changed1.png";
-    private static readonly string txtFilename = myPictures + "\\grayscale test images\\test1.txt";
-    private static readonly string receivedImgFilename = myPictures + "\\grayscale test images\\received images\\test1.png";
-    private static readonly string receivedTxtFilename = myPictures + "\\grayscale test images\\received images\\test1.txt";
+    private static readonly string imgFilename = myPictures +  "\\grayscale test images\\sunset.png";
+    private static readonly string newFilename = myPictures + "\\grayscale test images\\changed.png";
+    private static readonly string txtFilename = myPictures + "\\grayscale test images\\byteMap.txt";
+    private static readonly string receivedImgFilename = myPictures + "\\grayscale test images\\received images\\received.png";
+    private static readonly string receivedTxtFilename = myPictures + "\\grayscale test images\\received images\\byteMap.txt";
 
-    private const string transmitterCOM = "COM6";
-    private const string receiverCOM = "COM9";
+    private const string transmitterCOM = "COM13";
+    private const string receiverCOM = "COM14";
 
     private const int baudRate = 1000000;
     private const int dataBits = 8;
@@ -25,6 +23,7 @@ class Program
     private const StopBits stopBits = StopBits.One;
 
     private const int flagBytesCount = 5;
+    private const int payloadSize = 30;
     private const byte bytesFlag = 0x01; // flag => [0] - 0x01, [1,2] - byte count
     private const byte imageFlag = 0x02; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
     private const byte stringFlag = 0x03; // flag => [0] - 0x03, [1,...,4] - string length
@@ -132,8 +131,8 @@ class Program
         while (count > 0)
         {
             int bytesToSend = 0;
-            if (count > 32)
-                bytesToSend = 32;
+            if (count > payloadSize)
+                bytesToSend = payloadSize;
             else
                 bytesToSend = count;
 
@@ -184,8 +183,8 @@ class Program
             while (count > 0)
             {
                 int bytesToSend = 0;
-                if (count > 32)
-                    bytesToSend = 32;
+                if (count > payloadSize)
+                    bytesToSend = payloadSize;
                 else
                     bytesToSend = count;
 
@@ -233,8 +232,8 @@ class Program
         while (count > 0)
         {
             int bytesToSend = 0;
-            if (count > 32)
-                bytesToSend = 32;
+            if (count > payloadSize)
+                bytesToSend = payloadSize;
             else
                 bytesToSend = count;
 
@@ -357,9 +356,9 @@ class Program
         while (count > 0)
         {
             int bytesToReceive = 0;
-            // Take at most a 32 byte chunk
-            if (count > 32)
-                bytesToReceive = 32;
+            // Take at most a *payloadSize* sized byte chunk
+            if (count > payloadSize)
+                bytesToReceive = payloadSize;
             else
                 bytesToReceive = count;
 
@@ -417,9 +416,9 @@ class Program
         while (count > 0)
         {
             int bytesToReceive = 0;
-            // Take at most a 32 byte chunk
-            if (count > 32)
-                bytesToReceive = 32;
+            // Take at most a *payloadSize* sized byte chunk
+            if (count > payloadSize)
+                bytesToReceive = payloadSize;
             else
                 bytesToReceive = count;
 
@@ -488,6 +487,7 @@ class Program
     {
         Image<Rgba32> image = Image.Load<Rgba32>(filename);
         image.ConvertToGrayscale();
+        image.AddDither();
         image.ResizeForInklpate();
         image.Save(newFilename);
         image.WriteAsByteMatrixToTextFile(txtFilename);

@@ -1,9 +1,6 @@
-﻿using SixLabors.ImageSharp.PixelFormats;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 namespace NRF_Transmitter
 {
@@ -116,7 +113,7 @@ namespace NRF_Transmitter
                         Rgba32 color = new Rgba32();
                         image[j, i].ToRgba32(ref color);
                         byte grayscaleValue = (byte)(((color.R + color.G + color.B) / 3 * 7 + 254) / 255);
-                        bitmap3Bit[(i * image.Width + j) / 2] = (byte)(((grayscaleValue & 0x0F) << 4) << 1);
+                        bitmap3Bit[(i * image.Width + j) / 2] = (byte)((grayscaleValue & 0x0F) << 4);
 
                         //Console.WriteLine($"image[{j},{i}], value={grayscaleValue.ToString("X2")}, RGB/3={(color.R + color.G + color.B) / 3}*7={(color.R + color.G + color.B) / 3 * 7}");
                     }
@@ -125,7 +122,7 @@ namespace NRF_Transmitter
                         Rgba32 color = new Rgba32();
                         image[j, i].ToRgba32(ref color);
                         byte grayscaleValue = (byte)(((color.R + color.G + color.B) / 3 * 7 + 254) / 255);
-                        bitmap3Bit[(i * image.Width + j) / 2] = (byte)(((grayscaleValue & 0x0F) << 1) | (bitmap3Bit[(i * image.Width + j) / 2] & 0xF0));
+                        bitmap3Bit[(i * image.Width + j) / 2] = (byte)((grayscaleValue & 0x0F) | (bitmap3Bit[(i * image.Width + j) / 2] & 0xF0));
 
                         //Console.WriteLine($"image[{j},{i}], value={grayscaleValue.ToString("X2")}, RGB/3={(color.R + color.G + color.B) / 3}*7={(color.R + color.G + color.B) / 3 * 7}");
                     }
