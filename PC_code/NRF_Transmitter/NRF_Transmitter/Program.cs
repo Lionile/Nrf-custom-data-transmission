@@ -28,7 +28,8 @@ class Program
     private const byte imageFlag = 0x02; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
     private const byte stringFlag = 0x03; // flag => [0] - 0x03, [1,...,4] - string length
     private const byte image3BitFlag = 0x04; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
-    private const byte ackFlag = 0xFF; // flag => [0] - 0xFF, [1,2] - ack count (ex. for image - remaining row byte count)
+    private const byte ackFlag = 0xFF;
+    private const byte nakFlag = 0x00;
 
     private static SerialPort transmitterPort = null!;
     private static SerialPort receiverPort = null!;
@@ -124,9 +125,11 @@ class Program
             transmitterPort.Write(flag, 0, flag.Length);
             Thread.Sleep(5);
         }
-        
+
 
         // start sending data
+        acks.Clear();
+        int payloadCount = 0;
         int count = data.Length;
         while (count > 0)
         {
@@ -140,9 +143,14 @@ class Program
             count -= bytesToSend;
             // wait for ack and check if it's correct
             while (acks.Count == 0) ;
-            if (acks.First() == count)
+            if (acks.First() == payloadCount)
             {
                 acks.RemoveFirst();
+                payloadCount++;
+            }
+            else if (acks.First() == -1)
+            {
+                return;
             }
             else
             {
@@ -176,6 +184,7 @@ class Program
         Thread.Sleep(5);
 
         // start sending data
+        acks.Clear();
         for (int i = 0; i < height; i++) // for each row
         {
             // send the row
@@ -197,6 +206,11 @@ class Program
                 {
                     acks.RemoveFirst();
                 }
+                else if (acks.First() == -1)
+                {
+                    return;
+                }
+
                 else
                 {
                     throw new Exception($"Incorrect ack | Expected: {count}, Received: {acks.First()}");
@@ -228,6 +242,7 @@ class Program
         Thread.Sleep(5);
 
         // start sending data
+        acks.Clear();
         int count = img.Length;
         while (count > 0)
         {
@@ -246,6 +261,11 @@ class Program
             {
                 acks.RemoveFirst();
             }
+            else if (acks.First() == -1)
+            {
+                return;
+            }
+
             else
             {
                 throw new Exception($"Incorrect ack | Expected: {count}, Received: {acks.First()}");
@@ -551,8 +571,15 @@ class Program
                     }
                     else if (flag[0] == ackFlag)
                     {
-                        int ackCount = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
-                        acks.AddLast(ackCount); // save ack in queue
+                        int payloadCount = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
+                        acks.AddLast(payloadCount); // save ack in queue
+                    }
+                    else if (flag[0] == nakFlag)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("NAK received");
+                        Console.ForegroundColor = ConsoleColor.White;
+                        acks.AddLast(-1); // save nak in queue
                     }
                 }
 
