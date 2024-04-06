@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 #include <SPI.h>
 #include <RF24.h>
 #include <avr/sleep.h>
@@ -26,7 +28,6 @@ void receiveBytes(unsigned long count);
 void receiveString(unsigned long length);
 void printAsHex(byte data[], int arrSize);
 
-bool first = true;
 
 void setup() {
 
@@ -58,7 +59,9 @@ void loop() {
     byte flag[flagBytesCount];
     radio.read(&flag, sizeof(flag));
     if(flag[0] == transmitBytesFlag){
-
+      
+      wakeEsp();
+      // delay(500);
       Serial.write(flag, sizeof(flag));
       // read second, third, fourth and fifth byte as integer and call receiveBytes
       receiveBytes(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
@@ -66,6 +69,7 @@ void loop() {
     }
     else if(flag[0] == transmitImageFlag){
       
+      wakeEsp();
       Serial.write(flag, sizeof(flag));
       receiveImage((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
       //(flag[1] << 8) | flag[2] - read second and third byte as integer
@@ -73,6 +77,7 @@ void loop() {
     }
     else if(flag[0] == transmit3BitImageFlag){
       
+      wakeEsp();
       Serial.write(flag, sizeof(flag));
       receiveImage3Bit((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
       //(flag[1] << 8) | flag[2] - read second and third byte as integer
@@ -80,13 +85,15 @@ void loop() {
     }
     else if(flag[0] == transmitStringFlag){
       
+      wakeEsp();
       Serial.write(flag, sizeof(flag));
       // read second, third, fourth and fifth byte as integer and call receiveString
       receiveString(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
     }
-    radio.flush_rx(); // clear the buffer
-    radio.flush_tx(); // clear the buffer
+
+    radio.flush_rx(); // clear the rx buffer
+    radio.flush_tx(); // clear the tx buffer
     // put to sleep
     attachInterrupt(digitalPinToInterrupt(2), receiveInterrupt, HIGH);
     sleep_enable();
@@ -187,8 +194,6 @@ void receiveBytes(unsigned long count){
     Serial.write(data, bytesToReceive);
     count -= bytesToReceive;
 
-    bool randomBool = (rand() % 100) > 10;
-    first = false;
     // send ack to transmitter
     bool report = sendAck(receivedPayloadCount);
     //Serial.println("Ack report: " + String(report));

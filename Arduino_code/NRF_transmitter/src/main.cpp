@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 #include <SPI.h>
 #include <RF24.h>
 
@@ -23,8 +25,8 @@ void transmitString(unsigned long length);
 void printAsHex(byte data[], int arrSize);
 void resetRadio();
 void sendNak(unsigned long count);
-bool sendPayload(byte data[], int size);
-bool waitForAck();
+bool sendPayload(byte data[], int size, int timeout);
+bool waitForAck(int timeout);
 
 
 void setup() {
@@ -137,10 +139,10 @@ void transmitImage3Bit(int height, int width){
 }
 
 
-bool sendPayload(byte data[], int size){
+bool sendPayload(byte data[], int size, int timeout = 300){
   unsigned long send_timeout_start = millis();
   bool sent = radio.write(data, size);
-  while(!sent && millis() - send_timeout_start < 300){
+  while(!sent && millis() - send_timeout_start < timeout){
     delay(1);
     Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
     Serial.println("failed to send payload");
@@ -153,11 +155,11 @@ bool sendPayload(byte data[], int size){
 }
 
 
-bool waitForAck(){
+bool waitForAck(int timeout = 100){
   radio.startListening();         // put in RX mode
-  unsigned long ack_timeout = millis();
+  unsigned long ack_timeout_start = millis();
   while (!radio.available()) {             // wait for response
-    if (millis() - ack_timeout > 100){    // wait for some time
+    if (millis() - ack_timeout_start > 100){    // wait for some time
       radio.stopListening();      // put back in TX mode
       radio.flush_rx();           // clear the buffer
       return false;
@@ -204,7 +206,7 @@ void transmitBytes(unsigned long count){
     unsigned long send_start = millis();
     while(millis() - send_start < 2000){
       // try sending payload
-      bool sent = sendPayload(data, sizeof(data));
+      bool sent = sendPayload(data, sizeof(data)); // tries to send it for a certain period of time, and returns true if it was sent
       if(!sent){ // couldn't send the payload
         Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
         Serial.println("Transmission canceled: failed to send payload");
