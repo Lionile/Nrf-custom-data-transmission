@@ -18,10 +18,7 @@ const byte nakFlag = 0x00;
 byte transmitStringFlagMessage[flagBytesCount];
 
 void sendAck(unsigned long count);
-void transmitImage(int height, int width);
-void transmitImage3Bit(int height, int width);
 void transmitBytes(unsigned long count);
-void transmitString(unsigned long length);
 void printAsHex(byte data[], int arrSize);
 void resetRadio();
 void sendNak(unsigned long count);
@@ -72,28 +69,6 @@ void loop() {
       transmitBytes(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
     }
-    else if(flag[0] == transmitImageFlag){
-      radio.write(flag, sizeof(flag));
-      delay(5);
-      transmitImage((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
-      //(flag[1] << 8) | flag[2] - read second and third byte as integer
-      //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
-    }
-    else if(flag[0] == transmit3BitImageFlag){
-      radio.write(flag, sizeof(flag));
-      delay(5);
-      transmitImage3Bit((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
-      //(flag[1] << 8) | flag[2] - read second and third byte as integer
-      //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
-    }
-    else if(flag[0] == transmitStringFlag){
-      radio.write(flag, sizeof(flag));
-      delay(5);
-      
-      // read second, third, fourth and fifth byte as integer and call transmitString
-      transmitString(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
-                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
-    }
   }
   delay(2);
 }
@@ -120,22 +95,6 @@ void sendNak(unsigned long count){
   nakFlagMessage[3] = (byte)(count >> 8);
   nakFlagMessage[4] = (byte)(count & 0xFF);
   Serial.write(nakFlagMessage, sizeof(nakFlagMessage));
-}
-
-
-
-void transmitImage(int height, int width){
-  for(int i = 0; i < height; i++){
-    int count = width;
-    transmitBytes(count);
-  }
-}
-
-
-
-void transmitImage3Bit(int height, int width){
-  unsigned long count = (unsigned long)height * (unsigned long)width /2;
-  transmitBytes(count);
 }
 
 
@@ -253,12 +212,6 @@ void transmitBytes(unsigned long count){
     sendAck(payloadCount);
     payloadCount++;
   }
-}
-
-
-
-void transmitString(unsigned long length){
-  transmitBytes(length);
 }
 
 

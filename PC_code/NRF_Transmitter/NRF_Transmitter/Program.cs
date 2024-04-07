@@ -23,6 +23,7 @@ class Program
     private const StopBits stopBits = StopBits.One;
 
     private const int flagBytesCount = 5;
+    private const int inkplateFlagBytesCount = 5;
     private const int payloadSize = 30;
     private const byte bytesFlag = 0x01; // flag => [0] - 0x01, [1,2] - byte count
     private const byte imageFlag = 0x02; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
@@ -84,11 +85,11 @@ class Program
                     Console.WriteLine();
                     SendByteArray(data);
                 }
-                else if (Regex.IsMatch(input, @"\s*send [\w\s]+"))
+                /*else if (Regex.IsMatch(input, @"\s*send [\w\s]+"))
                 {
                     input = input.Trim().Substring(new string("send ").Length);
                     SendString(input);
-                }
+                }*/
             }
         }
         catch (Exception ex)
@@ -104,12 +105,9 @@ class Program
 
 
 
-    static void SendByteArray(byte[] data, bool sendFlag = true)
+    static void SendInitFlag(int byteCount)
     {
-        if (data.Length > Math.Pow(2, 32))
-            throw new ArgumentException("Size of byte array is too big");
-
-        byte[] dataSize = BitConverter.GetBytes(data.Length);
+        byte[] dataSize = BitConverter.GetBytes((Int32)byteCount);
         Array.Reverse(dataSize); // little endian
 
         // establish communication (send flag)
@@ -119,10 +117,34 @@ class Program
         flag[2] = dataSize[1];
         flag[3] = dataSize[2];
         flag[4] = dataSize[3];
+        
+
+        transmitterPort.Write(flag, 0, flag.Length);
+        Thread.Sleep(5);
+    }
+
+
+
+    static void SendByteArray(byte[] data, bool sendFlag = true)
+    {
+        if (data.Length > Math.Pow(2, 32))
+            throw new ArgumentException("Size of byte array is too big");
+
+        byte[] dataSize = BitConverter.GetBytes(data.Length);
+        Array.Reverse(dataSize); // little endian
+
+        // establish communication (send flag)
+        SendInitFlag(inkplateFlagBytesCount);
+        byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
+        inkplateFlag[0] = bytesFlag;
+        inkplateFlag[1] = dataSize[0];
+        inkplateFlag[2] = dataSize[1];
+        inkplateFlag[3] = dataSize[2];
+        inkplateFlag[4] = dataSize[3];
 
         if (sendFlag)
         {
-            transmitterPort.Write(flag, 0, flag.Length);
+            transmitterPort.Write(inkplateFlag, 0, inkplateFlag.Length);
             Thread.Sleep(5);
         }
 
@@ -131,6 +153,7 @@ class Program
         acks.Clear();
         int payloadCount = 0;
         int count = data.Length;
+        SendInitFlag(count);
         while (count > 0)
         {
             int bytesToSend = 0;
@@ -230,20 +253,24 @@ class Program
         Array.Reverse(heightAsBytes);
         Array.Reverse(widthAsBytes);
 
-        // establish communication (send flag)
-        byte[] flag = new byte[flagBytesCount];
-        flag[0] = image3BitFlag;
-        flag[1] = heightAsBytes[0];
-        flag[2] = heightAsBytes[1];
-        flag[3] = widthAsBytes[0];
-        flag[4] = widthAsBytes[1];
 
-        transmitterPort.Write(flag, 0, flag.Length);
+        // establish communication with receiving controller (send flag)
+        SendInitFlag(inkplateFlagBytesCount);
+        byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
+        inkplateFlag[0] = image3BitFlag;
+        inkplateFlag[1] = heightAsBytes[0];
+        inkplateFlag[2] = heightAsBytes[1];
+        inkplateFlag[3] = widthAsBytes[0];
+        inkplateFlag[4] = widthAsBytes[1];
+
+        transmitterPort.Write(inkplateFlag, 0, inkplateFlag.Length);
         Thread.Sleep(5);
 
         // start sending data
         acks.Clear();
+        int payloadCount = 0;
         int count = img.Length;
+        SendInitFlag(count);
         while (count > 0)
         {
             int bytesToSend = 0;
@@ -257,15 +284,15 @@ class Program
 
             // wait for ack and check if it's correct
             while (acks.Count == 0) ;
-            if (acks.First() == count)
+            if (acks.First() == payloadCount)
             {
                 acks.RemoveFirst();
+                payloadCount++;
             }
             else if (acks.First() == -1)
             {
                 return;
             }
-
             else
             {
                 throw new Exception($"Incorrect ack | Expected: {count}, Received: {acks.First()}");

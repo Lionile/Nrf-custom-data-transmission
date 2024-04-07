@@ -20,12 +20,9 @@ const byte nakFlag = 0x00; // negative acknoledgement
 
 
 void receiveInterrupt();
-void wakeEsp();
+void wakeReceiver();
 bool sendAck(unsigned long payloadCount);
-void receiveImage(int height, int width);
-void receiveImage3Bit(int height, int width);
 void receiveBytes(unsigned long count);
-void receiveString(unsigned long length);
 void printAsHex(byte data[], int arrSize);
 
 
@@ -60,35 +57,11 @@ void loop() {
     radio.read(&flag, sizeof(flag));
     if(flag[0] == transmitBytesFlag){
       
-      wakeEsp();
+      wakeReceiver();
       // delay(500);
-      Serial.write(flag, sizeof(flag));
+      //Serial.write(flag, sizeof(flag)); // send the flag to the receiver (deprecated)
       // read second, third, fourth and fifth byte as integer and call receiveBytes
       receiveBytes(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
-                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
-    }
-    else if(flag[0] == transmitImageFlag){
-      
-      wakeEsp();
-      Serial.write(flag, sizeof(flag));
-      receiveImage((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
-      //(flag[1] << 8) | flag[2] - read second and third byte as integer
-      //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
-    }
-    else if(flag[0] == transmit3BitImageFlag){
-      
-      wakeEsp();
-      Serial.write(flag, sizeof(flag));
-      receiveImage3Bit((flag[1] << 8) | flag[2], (flag[3] << 8) | flag[4]);
-      //(flag[1] << 8) | flag[2] - read second and third byte as integer
-      //(flag[3] << 8) | flag[4] - read fourth and fifth byte as integer
-    }
-    else if(flag[0] == transmitStringFlag){
-      
-      wakeEsp();
-      Serial.write(flag, sizeof(flag));
-      // read second, third, fourth and fifth byte as integer and call receiveString
-      receiveString(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
     }
 
@@ -109,15 +82,15 @@ void receiveInterrupt(){
 }
 
 
-
-void wakeEsp(){
+// wake up the receiving controller (or PC)
+void wakeReceiver(){
   digitalWrite(ESP_WAKE_PIN, HIGH);
   delayMicroseconds(200);
   digitalWrite(ESP_WAKE_PIN, LOW);
 }
 
 
-
+// for sending the ack back to the transmitter
 bool sendAck(unsigned long payloadCount){
   bool report = false;
   byte ackMessage[flagBytesCount];
@@ -132,22 +105,6 @@ bool sendAck(unsigned long payloadCount){
   radio.startListening();  // put back in RX mode
 
   return report;
-}
-
-
-
-void receiveImage(int height, int width){
-  for(int i = 0; i < height; i++){
-    int count = width;
-    receiveBytes(count);
-  }
-}
-
-
-
-void receiveImage3Bit(int height, int width){
-  unsigned long count = (unsigned long)height * (unsigned long)width /2;
-  receiveBytes(count);
 }
 
 
@@ -200,12 +157,6 @@ void receiveBytes(unsigned long count){
     
     payloadCount++;
   }
-}
-
-
-
-void receiveString(unsigned long length){
-  receiveBytes(length);
 }
 
 
