@@ -23,7 +23,7 @@ void printAsHex(byte data[], int arrSize);
 void resetRadio();
 void sendNak(unsigned long count);
 bool sendPayload(byte data[], int size, int timeout);
-bool waitForAck(int timeout);
+bool waitForAck(int timeout = 100);
 
 
 void setup() {
@@ -64,10 +64,27 @@ void loop() {
     // Choose the next step depending on what type of message is transmitting
     if(flag[0] == transmitBytesFlag){
       radio.write(flag, sizeof(flag));
-      delay(5);//wait for ack
+      unsigned long count = ((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
+                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
+      
+      bool ackReceived = waitForAck();
+      if(!ackReceived){               // waiting for ack timed out
+        Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
+        Serial.println("no flag ack");
+        return;                     // try sending the data again
+      }
+
+      // read the ack and check if it's correct
+      byte received[flagBytesCount];
+      radio.read(&received, sizeof(received));
+      unsigned long ackCount = ((unsigned long)received[1] << 24) | ((unsigned long)received[2] << 16)
+                | ((unsigned long)received[3] << 8) | (unsigned long)received[4];
+      if(ackCount != count) // check if the ack isn't for the current payload
+        return; // TODO: instead of return, send the data again
+
+      sendAck(count);
       // read second, third, fourth and fifth byte as integer and call transmitBytes
-      transmitBytes(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
-                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
+      transmitBytes(count);
     }
   }
   delay(2);
@@ -205,7 +222,8 @@ void transmitBytes(unsigned long count){
     // read the ack and check if it's correct
     byte received[flagBytesCount];
     radio.read(&received, sizeof(received));
-    unsigned long receivedPayloadCount = (unsigned long)received[1] << 8 | (unsigned long)received[2];
+    unsigned long receivedPayloadCount = ((unsigned long)received[1] << 24) | ((unsigned long)received[2] << 16)
+                | ((unsigned long)received[3] << 8) | (unsigned long)received[4];
     if(receivedPayloadCount != payloadCount) // check if the ack isn't for the current payload
       return; // TODO: instead of return, send the data again
     

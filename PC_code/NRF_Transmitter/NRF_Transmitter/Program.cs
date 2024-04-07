@@ -105,7 +105,7 @@ class Program
 
 
 
-    static void SendInitFlag(int byteCount)
+    static bool SendInitFlag(int byteCount)
     {
         byte[] dataSize = BitConverter.GetBytes((Int32)byteCount);
         Array.Reverse(dataSize); // little endian
@@ -120,7 +120,22 @@ class Program
         
 
         transmitterPort.Write(flag, 0, flag.Length);
-        Thread.Sleep(5);
+        var stopWatch = System.Diagnostics.Stopwatch.StartNew();
+        while (acks.Count == 0)
+        {
+            if(stopWatch.ElapsedMilliseconds > 1000)
+            {
+                Console.WriteLine("No ack received");
+                return false;
+            }
+        }
+        if (acks.First() == byteCount)
+        {
+            acks.RemoveFirst();
+            return true;
+        }
+
+        return false;
     }
 
 
@@ -134,7 +149,8 @@ class Program
         Array.Reverse(dataSize); // little endian
 
         // establish communication (send flag)
-        SendInitFlag(inkplateFlagBytesCount);
+        if (SendInitFlag(inkplateFlagBytesCount) == false)
+            return;
         byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
         inkplateFlag[0] = bytesFlag;
         inkplateFlag[1] = dataSize[0];
@@ -153,7 +169,8 @@ class Program
         acks.Clear();
         int payloadCount = 0;
         int count = data.Length;
-        SendInitFlag(count);
+        if (SendInitFlag(count) == false)
+            return;
         while (count > 0)
         {
             int bytesToSend = 0;
@@ -183,7 +200,7 @@ class Program
     }
 
 
-
+    [Obsolete("Needs to be updated, use SendImage3Bit for now")]
     static void SendImage(byte[][] img)
     {
         int height = img.Length;
@@ -255,7 +272,8 @@ class Program
 
 
         // establish communication with receiving controller (send flag)
-        SendInitFlag(inkplateFlagBytesCount);
+        if (SendInitFlag(inkplateFlagBytesCount) == false)
+            return;
         byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
         inkplateFlag[0] = image3BitFlag;
         inkplateFlag[1] = heightAsBytes[0];
@@ -270,7 +288,8 @@ class Program
         acks.Clear();
         int payloadCount = 0;
         int count = img.Length;
-        SendInitFlag(count);
+        if (SendInitFlag(count) == false)
+            return;
         while (count > 0)
         {
             int bytesToSend = 0;

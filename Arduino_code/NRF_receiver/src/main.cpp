@@ -4,7 +4,7 @@
 #include <RF24.h>
 #include <avr/sleep.h>
 
-const int ESP_WAKE_PIN = 3;
+const int RECEIVER_WAKE_PIN = 3;
 
 RF24 radio(7, 8); // CE, CSN
 
@@ -28,8 +28,8 @@ void printAsHex(byte data[], int arrSize);
 
 void setup() {
 
-  pinMode(ESP_WAKE_PIN, OUTPUT);
-  digitalWrite(ESP_WAKE_PIN, LOW);
+  pinMode(RECEIVER_WAKE_PIN, OUTPUT);
+  digitalWrite(RECEIVER_WAKE_PIN, LOW);
 
   Serial.begin(1000000);
 
@@ -56,13 +56,12 @@ void loop() {
     byte flag[flagBytesCount];
     radio.read(&flag, sizeof(flag));
     if(flag[0] == transmitBytesFlag){
-      
+      unsigned long count = ((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
+                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
       wakeReceiver();
-      // delay(500);
-      //Serial.write(flag, sizeof(flag)); // send the flag to the receiver (deprecated)
+      bool report = sendAck(count);
       // read second, third, fourth and fifth byte as integer and call receiveBytes
-      receiveBytes(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
-                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);
+      receiveBytes(count);
     }
 
     radio.flush_rx(); // clear the rx buffer
@@ -84,9 +83,9 @@ void receiveInterrupt(){
 
 // wake up the receiving controller (or PC)
 void wakeReceiver(){
-  digitalWrite(ESP_WAKE_PIN, HIGH);
+  digitalWrite(RECEIVER_WAKE_PIN, HIGH);
   delayMicroseconds(200);
-  digitalWrite(ESP_WAKE_PIN, LOW);
+  digitalWrite(RECEIVER_WAKE_PIN, LOW);
 }
 
 
@@ -96,8 +95,10 @@ bool sendAck(unsigned long payloadCount){
   byte ackMessage[flagBytesCount];
 
   ackMessage[0] = ackFlag;
-  ackMessage[1] = payloadCount >> 8;
-  ackMessage[2] = payloadCount & 0xFF;
+  ackMessage[1] = payloadCount >> 24;
+  ackMessage[2] = payloadCount >> 16;
+  ackMessage[3] = payloadCount >> 8;
+  ackMessage[4] = payloadCount & 0xFF;
 
   radio.stopListening();  // put in TX mode
   radio.writeFast(&ackMessage, sizeof(ackMessage));  // load response to TX FIFO
