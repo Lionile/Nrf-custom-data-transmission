@@ -11,10 +11,8 @@ RF24 radio(7, 8); // CE, CSN
 const uint8_t address[] = "00050";
 const unsigned int flagBytesCount = 5;
 const unsigned int payloadSize = 30; // need 2 bytes free for payloadCount
-const byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,2] - byte count,
-const byte transmitImageFlag = 0x02; // [0] - 0x02, [1,2] - image height, [3,4] - image width
-const byte transmitStringFlag = 0x03; // [0] - 0x03, [1,...,4] - string length
-const byte transmit3BitImageFlag = 0x04;
+const byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,...,4] - byte count
+const byte transmitBytesWakeFlag = 0x02; // [0] - 0x01, [1,...,4] - byte count -> before sending the data, wakes up the receiver
 const byte ackFlag = 0xFF; // acknoledgement
 const byte nakFlag = 0x00; // negative acknoledgement
 
@@ -56,11 +54,25 @@ void loop() {
     byte flag[flagBytesCount];
     radio.read(&flag, sizeof(flag));
     if(flag[0] == transmitBytesFlag){
+      // read second, third, fourth and fifth byte as integer and call receiveBytes
       unsigned long count = ((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
-      wakeReceiver();
+      
       bool report = sendAck(count);
+      
+      receiveBytes(count);
+    }
+    else if(flag[0] == transmitBytesWakeFlag){
       // read second, third, fourth and fifth byte as integer and call receiveBytes
+      unsigned long count = ((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
+                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
+      
+      wakeReceiver();
+      while(!Serial.available()); // useless, make it so it waits for a specific message
+                                  // like when the receiver wakes up it sends "awake"
+      delay(1000);
+      bool report = sendAck(count);
+      
       receiveBytes(count);
     }
 
@@ -84,7 +96,7 @@ void receiveInterrupt(){
 // wake up the receiving controller (or PC)
 void wakeReceiver(){
   digitalWrite(RECEIVER_WAKE_PIN, HIGH);
-  delayMicroseconds(200);
+  delayMicroseconds(500);
   digitalWrite(RECEIVER_WAKE_PIN, LOW);
 }
 
@@ -128,7 +140,7 @@ void receiveBytes(unsigned long count){
     unsigned long startTime = millis();
     while (!radio.available()) {
       if (millis() - startTime >= 1000) {
-        //Serial.println(F("Transmission timed out"));
+        Serial.println(F("Transmission timed out"));
         return; // or any other action you want to take when canceling the transmission
       }
     }

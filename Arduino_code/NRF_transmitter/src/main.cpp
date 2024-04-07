@@ -8,10 +8,9 @@ RF24 radio(7, 8); // CE, CSN
 const uint8_t address[] = "00050";
 const unsigned int flagBytesCount = 5;
 const unsigned int payloadSize = 30; // need 2 bytes free for payloadCount
-const byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,2] - byte count,
-const byte transmitImageFlag = 0x02; // [0] - 0x02, [1,2] - image height, [3,4] - image width
-const byte transmitStringFlag = 0x03; // [0] - 0x03, [1,...,4] - string length
-const byte transmit3BitImageFlag = 0x04;
+const byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,...,4] - byte count
+const byte transmitBytesWakeFlag = 0x02; // [0] - 0x01, [1,...,4] - byte count -> before sending the data, wakes up the receiver
+const byte stringFlag = 0x03; // [0] - 0x03, [1,...,4] - string length
 const byte ackFlag = 0xFF;
 const byte nakFlag = 0x00;
 
@@ -27,7 +26,7 @@ bool waitForAck(int timeout = 100);
 
 
 void setup() {
-  transmitStringFlagMessage[0] = transmitStringFlag;
+  transmitStringFlagMessage[0] = stringFlag;
 
   Serial.begin(1000000);
 
@@ -59,6 +58,7 @@ void resetRadio(){
 
 void loop() {
   if (Serial.available()) {
+
     byte flag[flagBytesCount];
     Serial.readBytes(flag, sizeof(flag));
     // Choose the next step depending on what type of message is transmitting
@@ -85,6 +85,33 @@ void loop() {
       sendAck(count);
       // read second, third, fourth and fifth byte as integer and call transmitBytes
       transmitBytes(count);
+
+    }
+    else if(flag[0] == transmitBytesWakeFlag){
+
+      radio.write(flag, sizeof(flag));
+      unsigned long count = ((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
+                | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
+      
+      bool ackReceived = waitForAck(2000); // wait for a longer time (so the receiver can wake up)
+      if(!ackReceived){               // waiting for ack timed out
+        Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
+        Serial.println("no wake flag ack");
+        return;                     // try sending the data again
+      }
+
+      // read the ack and check if it's correct
+      byte received[flagBytesCount];
+      radio.read(&received, sizeof(received));
+      unsigned long ackCount = ((unsigned long)received[1] << 24) | ((unsigned long)received[2] << 16)
+                | ((unsigned long)received[3] << 8) | (unsigned long)received[4];
+      if(ackCount != count) // check if the ack isn't for the current payload
+        return; // TODO: instead of return, send the data again
+
+      sendAck(count);
+      // read second, third, fourth and fifth byte as integer and call transmitBytes
+      transmitBytes(count);
+      
     }
   }
   delay(2);
@@ -135,7 +162,7 @@ bool waitForAck(int timeout = 100){
   radio.startListening();         // put in RX mode
   unsigned long ack_timeout_start = millis();
   while (!radio.available()) {             // wait for response
-    if (millis() - ack_timeout_start > 100){    // wait for some time
+    if (millis() - ack_timeout_start > timeout){    // wait for some time
       radio.stopListening();      // put back in TX mode
       radio.flush_rx();           // clear the buffer
       return false;

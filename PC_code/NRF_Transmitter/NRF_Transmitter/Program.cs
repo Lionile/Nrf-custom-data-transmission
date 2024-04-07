@@ -25,12 +25,16 @@ class Program
     private const int flagBytesCount = 5;
     private const int inkplateFlagBytesCount = 5;
     private const int payloadSize = 30;
-    private const byte bytesFlag = 0x01; // flag => [0] - 0x01, [1,2] - byte count
-    private const byte imageFlag = 0x02; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
-    private const byte stringFlag = 0x03; // flag => [0] - 0x03, [1,...,4] - string length
-    private const byte image3BitFlag = 0x04; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
+    private const byte bytesFlag = 0x01; // flag => [0] - 0x01, [1,..,4] - byte count
+    private const byte bytesWakeFlag = 0x02; // flag => [0] - 0x02, [1,..,4] - byte count
+    private const byte stringFlag = 0x03;
     private const byte ackFlag = 0xFF;
     private const byte nakFlag = 0x00;
+    // IP (InkPlate) flags
+    private const byte IPBytesFlag = 0x01; // flag => [0] - 0x01, [1,..,4] - byte count
+    private const byte IPImageFlag = 0x02; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
+    private const byte IPStringFlag = 0x03; // flag => [0] - 0x03, [1,...,4] - string length
+    private const byte IPImage3BitFlag = 0x04; // flag => [0] - 0x02, [1,2] - image heightAsBytes, [3,4] - image widthAsBytes
 
     private static SerialPort transmitterPort = null!;
     private static SerialPort receiverPort = null!;
@@ -52,8 +56,8 @@ class Program
 
             Thread readThread = new Thread(ReadFromArduino); // Thread for listening to the transmitting arduino
             readThread.Start();
-            Thread receiveThread = new Thread(ReceiveData); // Thread for listening to the receiving arduino
-            receiveThread.Start();
+            //Thread receiveThread = new Thread(ReceiveData); // Thread for listening to the receiving arduino
+            //receiveThread.Start();
 
             while (true)
             {
@@ -105,14 +109,17 @@ class Program
 
 
 
-    static bool SendInitFlag(int byteCount)
+    static bool SendInitFlag(int byteCount, bool wakeFlag = false)
     {
         byte[] dataSize = BitConverter.GetBytes((Int32)byteCount);
         Array.Reverse(dataSize); // little endian
 
         // establish communication (send flag)
         byte[] flag = new byte[flagBytesCount];
-        flag[0] = bytesFlag;
+        if(wakeFlag)
+            flag[0] = bytesWakeFlag;
+        else
+            flag[0] = bytesFlag;
         flag[1] = dataSize[0];
         flag[2] = dataSize[1];
         flag[3] = dataSize[2];
@@ -123,7 +130,7 @@ class Program
         var stopWatch = System.Diagnostics.Stopwatch.StartNew();
         while (acks.Count == 0)
         {
-            if(stopWatch.ElapsedMilliseconds > 1000)
+            if(stopWatch.ElapsedMilliseconds > 2000)
             {
                 Console.WriteLine("No ack received");
                 return false;
@@ -149,10 +156,10 @@ class Program
         Array.Reverse(dataSize); // little endian
 
         // establish communication (send flag)
-        if (SendInitFlag(inkplateFlagBytesCount) == false)
+        if (SendInitFlag(inkplateFlagBytesCount, true) == false)
             return;
         byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
-        inkplateFlag[0] = bytesFlag;
+        inkplateFlag[0] = IPBytesFlag;
         inkplateFlag[1] = dataSize[0];
         inkplateFlag[2] = dataSize[1];
         inkplateFlag[3] = dataSize[2];
@@ -214,7 +221,7 @@ class Program
 
         // establish communication (send flag)
         byte[] flag = new byte[flagBytesCount];
-        flag[0] = imageFlag;
+        flag[0] = IPImageFlag;
         flag[1] = heightAsBytes[0];
         flag[2] = heightAsBytes[1];
         flag[3] = widthAsBytes[0];
@@ -272,10 +279,10 @@ class Program
 
 
         // establish communication with receiving controller (send flag)
-        if (SendInitFlag(inkplateFlagBytesCount) == false)
+        if (SendInitFlag(inkplateFlagBytesCount, true) == false)
             return;
         byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
-        inkplateFlag[0] = image3BitFlag;
+        inkplateFlag[0] = IPImage3BitFlag;
         inkplateFlag[1] = heightAsBytes[0];
         inkplateFlag[2] = heightAsBytes[1];
         inkplateFlag[3] = widthAsBytes[0];
@@ -328,7 +335,7 @@ class Program
         Array.Reverse(lengthAsBytes);
 
         byte[] flag = new byte[flagBytesCount];
-        flag[0] = stringFlag;
+        flag[0] = IPStringFlag;
         flag[1] = lengthAsBytes[0];
         flag[2] = lengthAsBytes[1];
         flag[3] = lengthAsBytes[2];
@@ -371,7 +378,7 @@ class Program
                         Console.WriteLine();
                         Console.ForegroundColor = ConsoleColor.White;
                     }
-                    else if (flag[0] == imageFlag)
+                    else if (flag[0] == IPImageFlag)
                     {
                         Console.ForegroundColor = ConsoleColor.Blue;
                         int height = (flag[1] << 8) | flag[2];
@@ -381,7 +388,7 @@ class Program
                         ReceiveImage(height, width);
                         Console.ForegroundColor = ConsoleColor.White;
                     }
-                    else if (flag[0] == image3BitFlag)
+                    else if (flag[0] == IPImage3BitFlag)
                     {
                         Console.ForegroundColor = ConsoleColor.Blue;
                         int height = (flag[1] << 8) | flag[2];
@@ -391,7 +398,7 @@ class Program
                         ReceiveImage3Bit(height, width);
                         Console.ForegroundColor = ConsoleColor.White;
                     }
-                    else if (flag[0] == stringFlag)
+                    else if (flag[0] == IPStringFlag)
                     {
                         Console.ForegroundColor = ConsoleColor.Blue;
                         int length = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
