@@ -73,7 +73,7 @@ void loop() {
                                   // like when the receiver wakes up it sends "awake"
       //delay(1000);
       if(!waitForWake()){
-        Serial.println(F("Wake signal not received"));
+        //Serial.println(F("Wake signal not received"));
         return;
       }
       bool report = sendAck(count);
@@ -94,7 +94,6 @@ void loop() {
 // waits until receiving controller sends wake signal
 // returns true if wake signal is received, false otherwise
 bool waitForWake(int timeout = 1000){
-  Serial.println(F("Waiting for wake signal"));
   char buffer[sizeof(wakeMessage)];
   int index = 0;
 
