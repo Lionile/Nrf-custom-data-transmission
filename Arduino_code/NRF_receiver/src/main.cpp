@@ -15,8 +15,9 @@ const byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,...,4] - byte count
 const byte transmitBytesWakeFlag = 0x02; // [0] - 0x01, [1,...,4] - byte count -> before sending the data, wakes up the receiver
 const byte ackFlag = 0xFF; // acknoledgement
 const byte nakFlag = 0x00; // negative acknoledgement
+const String wakeMessage = "awake";
 
-
+bool waitForWake(int timeout = 1000);
 void receiveInterrupt();
 void wakeReceiver();
 bool sendAck(unsigned long payloadCount);
@@ -68,9 +69,13 @@ void loop() {
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
       
       wakeReceiver();
-      while(!Serial.available()); // useless, make it so it waits for a specific message
+      //while(!Serial.available()); // useless, make it so it waits for a specific message
                                   // like when the receiver wakes up it sends "awake"
-      delay(1000);
+      //delay(1000);
+      if(!waitForWake()){
+        Serial.println(F("Wake signal not received"));
+        return;
+      }
       bool report = sendAck(count);
       
       receiveBytes(count);
@@ -82,6 +87,38 @@ void loop() {
     attachInterrupt(digitalPinToInterrupt(2), receiveInterrupt, HIGH);
     sleep_enable();
   }
+}
+
+
+
+// waits until receiving controller sends wake signal
+// returns true if wake signal is received, false otherwise
+bool waitForWake(int timeout = 1000){
+  Serial.println(F("Waiting for wake signal"));
+  char buffer[sizeof(wakeMessage)];
+  int index = 0;
+
+  unsigned long startTime = millis();
+  while(millis() - startTime < timeout){
+    if(Serial.available()){
+      buffer[index] = Serial.read();
+      index = (index + 1) % 5;
+
+      for (int i = 0; i < sizeof(wakeMessage); i++) {
+        char temp[sizeof(wakeMessage) + 1]; // +1 for null terminator
+        for (int j = 0; j < 5; j++) {
+          temp[j] = buffer[(i + j) % 5];
+        }
+        temp[5] = '\0';
+
+        if (strcmp(temp, wakeMessage.c_str()) == 0) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 
