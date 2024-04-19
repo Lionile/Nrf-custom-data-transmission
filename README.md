@@ -4,7 +4,7 @@
 
 ## Needed project references
 
-### PC Code - Visual studio (NuGet)
+### PC Code - Visual Studio 2022 (NuGet)
 
 SixLabors.ImageSharp -Version 3.1.3
 System.IO.Ports -Version 8.0.0
