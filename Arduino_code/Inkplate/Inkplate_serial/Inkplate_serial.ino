@@ -1,5 +1,5 @@
 #include "Inkplate.h"  //Include Inkplate library to the sketch
-#include "image.h"
+//#include "image.h"
 Inkplate display(INKPLATE_3BIT);  // Create object on Inkplate library and set library to work in gray mode (3-bit)
                                   // Other option is BW mode, which is demonstrated in next example
                                   // "Inkplate_basic_BW"
@@ -60,6 +60,7 @@ void loop() {
       wakeStart = millis(); 
 
     } else if (flag[0] == transmit3BitImageFlag) {
+      Serial.println("Receiving image3bit");
       display.clearDisplay();
       int height = (flag[1] << 8) | flag[2];
       int width = (flag[3] << 8) | flag[4];
@@ -92,6 +93,7 @@ void wakeUp(){
 }
 
 void receiveBytes(unsigned long count) {
+  Serial.println("Receiving " + String(count) + " bytes");
   while (count > 0) {
     int bytesToReceive = 0;
     // Take at most a 32 byte chunk
@@ -101,9 +103,14 @@ void receiveBytes(unsigned long count) {
       bytesToReceive = count;
 
     byte data[bytesToReceive];
-    // TODO: only wait for a certain ammount of time (flush te buffer if exceeded maybe?)
-    while (Serial2.available() < bytesToReceive)
-      ;  // wait until the whole packet comes
+    
+    unsigned long startTime = millis();
+    while (Serial2.available() < bytesToReceive){
+      if (millis() - startTime >= 1000) {
+        Serial.println(F("Transmission timed out"));
+        return; // or any other action you want to take when canceling the transmission
+      }
+    }
 
     Serial2.readBytes(data, sizeof(data));
     printAsHex(data, sizeof(data));
@@ -125,9 +132,13 @@ void receiveImage3Bit(int height, int width) {
       bytesToReceive = count;
 
     byte data[bytesToReceive];
-    // TODO: only wait for a certain ammount of time (flush te buffer if exceeded maybe?)
-    while (Serial2.available() < bytesToReceive)
-      ;  // wait until the whole packet comes
+    unsigned long startTime = millis();
+    while (Serial2.available() < bytesToReceive){
+      if (millis() - startTime >= 1000) {
+        Serial.println(F("Transmission timed out"));
+        return; // or any other action you want to take when canceling the transmission
+      }
+    }
 
     Serial2.readBytes(data, sizeof(data));
     // for each pixel received, save it to the buffer
@@ -150,6 +161,7 @@ void receiveImage3Bit(int height, int width) {
   }
 
   display.display();
+  Serial.println("Image 3bit received!");
 }
 
 void receiveString(unsigned long length) {

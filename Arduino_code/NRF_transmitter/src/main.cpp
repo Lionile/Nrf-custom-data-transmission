@@ -3,6 +3,17 @@
 #include <SPI.h>
 #include <RF24.h>
 
+#define debug
+
+#ifdef debug
+  #define DEBUG_PRINTLN(x) { \
+    Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage)); \
+    Serial.println(x); \
+  }
+#else
+  #define DEBUG_PRINTLN(x)
+#endif
+
 RF24 radio(7, 8); // CE, CSN
 
 const uint8_t address[] = "00050";
@@ -63,14 +74,14 @@ void loop() {
     Serial.readBytes(flag, sizeof(flag));
     // Choose the next step depending on what type of message is transmitting
     if(flag[0] == transmitBytesFlag){
+      DEBUG_PRINTLN("Transmt bytes flag");
       radio.write(flag, sizeof(flag));
       unsigned long count = ((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
       
       bool ackReceived = waitForAck();
       if(!ackReceived){               // waiting for ack timed out
-        Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
-        Serial.println("no flag ack");
+        DEBUG_PRINTLN("no flag ack");
         return;                     // try sending the data again
       }
 
@@ -95,8 +106,7 @@ void loop() {
       
       bool ackReceived = waitForAck(2000); // wait for a longer time (so the receiver can wake up)
       if(!ackReceived){               // waiting for ack timed out
-        Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
-        Serial.println("no wake flag ack");
+        DEBUG_PRINTLN("no wake flag ack");
         return;                     // try sending the data again
       }
 
@@ -147,8 +157,7 @@ bool sendPayload(byte data[], int size, int timeout = 300){
   bool sent = radio.write(data, size);
   while(!sent && millis() - send_timeout_start < timeout){
     delay(1);
-    Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
-    Serial.println("failed to send payload");
+    DEBUG_PRINTLN("failed to send payload");
     sent = radio.write(data, size);
   }
   if(sent)
@@ -176,6 +185,7 @@ bool waitForAck(int timeout = 100){
 
 
 void transmitBytes(unsigned long count){
+  DEBUG_PRINTLN("Transmitting bytes");
   unsigned long payloadCount = 0; // current payload index
   // Keep receiving bytes until you get all of it
   while(count > 0){
@@ -193,8 +203,7 @@ void transmitBytes(unsigned long count){
     unsigned long start_waiting = millis();
     while (Serial.available() < bytesToSend) {
       if (millis() - start_waiting > 1000) {
-        Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
-        Serial.println("Transmission canceled");
+        DEBUG_PRINTLN("Transmission canceled");
         return;
       }
     }
@@ -211,8 +220,7 @@ void transmitBytes(unsigned long count){
       // try sending payload
       bool sent = sendPayload(data, sizeof(data)); // tries to send it for a certain period of time, and returns true if it was sent
       if(!sent){ // couldn't send the payload
-        Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
-        Serial.println("Transmission canceled: failed to send payload");
+        DEBUG_PRINTLN("Transmission canceled: failed to send payload");
         sendNak(payloadCount);
         resetRadio();
         return;
@@ -224,8 +232,7 @@ void transmitBytes(unsigned long count){
       // if no ack is received for some time, send the data again
       bool ackReceived = waitForAck();
       if(!ackReceived){               // waiting for ack timed out
-        Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
-        Serial.println("no ack");
+        DEBUG_PRINTLN("no ack");
         count += bytesToSend;         // return count to its previous value
         continue;                     // try sending the data again
       }
@@ -236,8 +243,7 @@ void transmitBytes(unsigned long count){
     }
 
     if(!sent_and_acknowledged){
-      Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage));
-      Serial.println("Transmission canceled: failed to send and ack payload");
+      DEBUG_PRINTLN("Transmission canceled: failed to send and ack payload");
       sendNak(payloadCount);
       radio.stopListening();
       radio.flush_rx();

@@ -2,9 +2,29 @@
 
 #include <SPI.h>
 #include <RF24.h>
-#include <avr/sleep.h>
+#include "LowPower.h"
 
-const int RECEIVER_WAKE_PIN = 3;
+//#define debug
+
+#define ARG_COUNT(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, COUNT, ...) COUNT
+#define COUNT_ARGS(...) ARG_COUNT(__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+
+#ifdef debug
+  #define DEBUG_PRINTLN(x) Serial.println(x)
+  #define DEBUG_PRINT_1(x) Serial.print(x)
+  #define DEBUG_PRINT_2(x, y) Serial.print(x, y)
+#else
+  #define DEBUG_PRINTLN(x)
+  #define DEBUG_PRINT_1(x)
+  #define DEBUG_PRINT_2(x, y)
+#endif
+
+// To automatically select the macro based on the number of arguments
+  #define DEBUG_PRINT_HELPER2(count, ...) DEBUG_PRINT_##count(__VA_ARGS__)
+  #define DEBUG_PRINT_HELPER1(count, ...) DEBUG_PRINT_HELPER2(count, __VA_ARGS__)
+  #define DEBUG_PRINT(...) DEBUG_PRINT_HELPER1(COUNT_ARGS(__VA_ARGS__), __VA_ARGS__)
+
+const int RECEIVER_WAKE_PIN = 3; // to wake the ESP32 or other receiving controller
 
 RF24 radio(7, 8); // CE, CSN
 
@@ -16,6 +36,9 @@ const byte transmitBytesWakeFlag = 0x02; // [0] - 0x01, [1,...,4] - byte count -
 const byte ackFlag = 0xFF; // acknoledgement
 const byte nakFlag = 0x00; // negative acknoledgement
 const String wakeMessage = "awake";
+const int sleep_time = 2; // total sleep time: sleep_time * 8 seconds
+const int sleep_timeout = 3500; // how long will the receiver wait for a message before going to sleep
+unsigned long last_sleep_time = 0; // when the receiver last woke up
 
 bool waitForWake(int timeout = 1000);
 void receiveInterrupt();
@@ -23,15 +46,30 @@ void wakeReceiver();
 bool sendAck(unsigned long payloadCount);
 void receiveBytes(unsigned long count);
 void printAsHex(byte data[], int arrSize);
+void setupRadio();
+
+int nrf_power_pin = 4; // controls the power connected to the nrf24l01 module
 
 
 void setup() {
-
+  pinMode(nrf_power_pin, OUTPUT);
+  digitalWrite(nrf_power_pin, LOW);
   pinMode(RECEIVER_WAKE_PIN, OUTPUT);
   digitalWrite(RECEIVER_WAKE_PIN, LOW);
 
-  Serial.begin(1000000);
+  Serial1.begin(1000000);
+  #ifdef debug
+    Serial.begin(1000000);
+  #endif
 
+  setupRadio();
+
+  last_sleep_time = millis();
+}
+
+
+
+void setupRadio(){
   radio.begin();
   radio.maskIRQ(false, false, true); // interrupt - (tx_ok, tx_fail, rx_ready)
   radio.setPALevel(RF24_PA_LOW);
@@ -41,13 +79,7 @@ void setup() {
   radio.openWritingPipe(address);
   radio.openReadingPipe(1, address);  // using pipe 1
   radio.startListening(); // put radio in RX mode
-
-  // go to sleep
-  attachInterrupt(digitalPinToInterrupt(2), receiveInterrupt, HIGH);
-  sleep_enable();
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
 }
-
 
 
 void loop() {
@@ -69,11 +101,9 @@ void loop() {
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
       
       wakeReceiver();
-      //while(!Serial.available()); // useless, make it so it waits for a specific message
-                                  // like when the receiver wakes up it sends "awake"
-      //delay(1000);
+
       if(!waitForWake()){
-        //Serial.println(F("Wake signal not received"));
+        DEBUG_PRINTLN("Wake signal not received");
         return;
       }
       bool report = sendAck(count);
@@ -83,9 +113,19 @@ void loop() {
 
     radio.flush_rx(); // clear the rx buffer
     radio.flush_tx(); // clear the tx buffer
-    // put to sleep
-    attachInterrupt(digitalPinToInterrupt(2), receiveInterrupt, HIGH);
-    sleep_enable();
+  }
+
+  if(millis() - last_sleep_time >= sleep_timeout){
+    DEBUG_PRINTLN("Going to sleep");
+    digitalWrite(nrf_power_pin, HIGH);
+    delay(2); //wait for everything to finish
+    for(int i = 0; i < sleep_time; i++){ // go to sleep for sleep_time * 8 seconds
+      LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF); // Sleep for 8 seconds
+    }
+    // woke up
+    digitalWrite(nrf_power_pin, LOW);
+    setupRadio();
+    last_sleep_time = millis();
   }
 }
 
@@ -99,8 +139,8 @@ bool waitForWake(int timeout = 1000){
 
   unsigned long startTime = millis();
   while(millis() - startTime < timeout){
-    if(Serial.available()){
-      buffer[index] = Serial.read();
+    if(Serial1.available()){
+      buffer[index] = Serial1.read();
       index = (index + 1) % 5;
 
       for (int i = 0; i < sizeof(wakeMessage); i++) {
@@ -118,14 +158,6 @@ bool waitForWake(int timeout = 1000){
   }
 
   return false;
-}
-
-
-
-void receiveInterrupt(){
-  // wake from sleep
-  detachInterrupt(digitalPinToInterrupt(2));
-  sleep_disable();
 }
 
 
@@ -176,8 +208,9 @@ void receiveBytes(unsigned long count){
     unsigned long startTime = millis();
     while (!radio.available()) {
       if (millis() - startTime >= 1000) {
-        Serial.println(F("Transmission timed out"));
-        return; // or any other action you want to take when canceling the transmission
+        DEBUG_PRINTLN("Transmission timed out");
+        last_sleep_time = millis(); // if the transmission fails, let the transmitter try again
+        return; // cancel transmission
       }
     }
     
@@ -187,22 +220,23 @@ void receiveBytes(unsigned long count){
     
     // check if the packet was already received (if the previous ack failed and the transmitter resent the packet)
     if(receivedPayloadCount < payloadCount){
-      //Serial.println(F("Received old packet"));
+      DEBUG_PRINTLN("Received old packet");
       sendAck(receivedPayloadCount);
       continue;
     }
     else if(receivedPayloadCount > payloadCount){
-      //Serial.println(F("Received packet out of order"));
+      DEBUG_PRINTLN("Received future packet");
+      last_sleep_time = millis(); // if the transmission fails, let the transmitter try again
       return;
     }
 
 
-    Serial.write(data, bytesToReceive);
+    Serial1.write(data, bytesToReceive);
     count -= bytesToReceive;
 
     // send ack to transmitter
     bool report = sendAck(receivedPayloadCount);
-    //Serial.println("Ack report: " + String(report));
+    DEBUG_PRINTLN("Ack report: " + String(report));
     
     payloadCount++;
   }
@@ -212,8 +246,8 @@ void receiveBytes(unsigned long count){
 
 void printAsHex(byte data[], int arrSize){
   for (int i = 0; i < arrSize; i++) {
-    Serial.print(data[i], HEX);
-    Serial.print(" ");
+    DEBUG_PRINT(data[i], HEX);
+    DEBUG_PRINT(" ");
   }
-  Serial.println();
+  DEBUG_PRINTLN();
 }
