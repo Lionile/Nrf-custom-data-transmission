@@ -8,14 +8,14 @@ using System.Text;
 class Program
 {
     private static readonly string myPictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-    private static readonly string imgFilename = myPictures +  "\\grayscale test images\\sunset.png";
+    private static readonly string imgFilename = myPictures + "\\grayscale test images\\sunset.png";
     private static readonly string newFilename = myPictures + "\\grayscale test images\\changed.png";
     private static readonly string txtFilename = myPictures + "\\grayscale test images\\byteMap.txt";
     private static readonly string receivedImgFilename = myPictures + "\\grayscale test images\\received images\\received.png";
     private static readonly string receivedTxtFilename = myPictures + "\\grayscale test images\\received images\\byteMap.txt";
 
-    private const string transmitterCOM = "COM13";
-    private const string receiverCOM = "COM14";
+    private const string transmitterCOM = "COM23";
+    private const string receiverCOM = "COM11";
 
     private const int baudRate = 1000000;
     private const int dataBits = 8;
@@ -48,14 +48,13 @@ class Program
         byte[][] img = ConvertImageForInkplate(imgFilename);
         byte[] img3Bit = Convert3BitImageForInkplate(imgFilename);
         transmitterPort = OpenPort(transmitterCOM);
-        
+        transmitterPort.DataReceived += (sender, e) => ReadFromArduino();
+
         try
         {
             transmitterPort.Open();
             Console.WriteLine("Type something and press Enter to send it to Arduino:");
 
-            Thread readThread = new Thread(ReadFromArduino); // Thread for listening to the transmitting arduino
-            readThread.Start();
             //Thread receiveThread = new Thread(ReceiveData); // Thread for listening to the receiving arduino
             //receiveThread.Start();
 
@@ -70,14 +69,25 @@ class Program
                     var elapsedMs = watch.ElapsedMilliseconds;
                     Console.WriteLine($"Time taken to send image: {elapsedMs}ms");
                 }
-                else if (input.ToLower().Equals("sendimg3"))
+                else if (Regex.IsMatch(input, @"^\s*sendimg3\s*(cont)?\s*$", RegexOptions.IgnoreCase))
                 {
-                    var watch = System.Diagnostics.Stopwatch.StartNew();
-                    SendImage3Bit(img3Bit, MyImageExtensions.inkplateHeight, MyImageExtensions.inkplateWidth);
-                    var elapsedMs = watch.ElapsedMilliseconds;
-                    Console.WriteLine($"Time taken to send image: {elapsedMs}ms");
+                    if (input.Contains("cont")) // cont - continuous sending
+                    {
+                        while (true)
+                        {
+                            if (SendImage3Bit(img3Bit, MyImageExtensions.inkplateHeight, MyImageExtensions.inkplateWidth))
+                                break;
+
+                            Console.WriteLine("Trying again");
+                            Thread.Sleep(1500);
+                        }
+                    }
+                    else
+                    {
+                        SendImage3Bit(img3Bit, MyImageExtensions.inkplateHeight, MyImageExtensions.inkplateWidth);
+                    }
                 }
-                else if (Regex.IsMatch(input, @"^\s*send \d+\s*$", RegexOptions.IgnoreCase)) // ex. send 5, or send   30...
+                else if (Regex.IsMatch(input, @"^\s*send \d+\s*(cont)?\s*$", RegexOptions.IgnoreCase)) // ex. send 5, or send   30...
                 {
                     int byteCount = Convert.ToInt32(input.Trim().Split(" ")[1]);
                     byte[] data = GetTestBytes(byteCount);
@@ -87,7 +97,21 @@ class Program
                         Console.Write("0x" + data[i].ToString("X2") + " ");
                     }
                     Console.WriteLine();
-                    SendByteArray(data);
+                    if (input.Contains("cont")) // cont - continuous sending
+                    {
+                        while (true)
+                        {
+                            if (SendByteArray(data))
+                                break;
+
+                            Console.WriteLine("Trying again");
+                            Thread.Sleep(1500);
+                        }
+                    }
+                    else
+                    {
+                        SendByteArray(data);
+                    }
                 }
                 /*else if (Regex.IsMatch(input, @"\s*send [\w\s]+"))
                 {
@@ -116,7 +140,7 @@ class Program
 
         // establish communication (send flag)
         byte[] flag = new byte[flagBytesCount];
-        if(wakeFlag)
+        if (wakeFlag)
             flag[0] = bytesWakeFlag;
         else
             flag[0] = bytesFlag;
@@ -124,13 +148,13 @@ class Program
         flag[2] = dataSize[1];
         flag[3] = dataSize[2];
         flag[4] = dataSize[3];
-        
+
 
         transmitterPort.Write(flag, 0, flag.Length);
         var stopWatch = System.Diagnostics.Stopwatch.StartNew();
         while (acks.Count == 0)
         {
-            if(stopWatch.ElapsedMilliseconds > 2000)
+            if (stopWatch.ElapsedMilliseconds > 2000)
             {
                 Console.WriteLine("No ack received");
                 return false;
@@ -146,8 +170,8 @@ class Program
     }
 
 
-
-    static void SendByteArray(byte[] data, bool sendFlag = true)
+    // return true if transmission was successful
+    static bool SendByteArray(byte[] data, bool sendFlag = true)
     {
         if (data.Length > Math.Pow(2, 32))
             throw new ArgumentException("Size of byte array is too big");
@@ -157,7 +181,7 @@ class Program
 
         // establish communication (send flag)
         if (SendInitFlag(inkplateFlagBytesCount, true) == false)
-            return;
+            return false;
         byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
         inkplateFlag[0] = IPBytesFlag;
         inkplateFlag[1] = dataSize[0];
@@ -177,7 +201,7 @@ class Program
         int payloadCount = 0;
         int count = data.Length;
         if (SendInitFlag(count) == false)
-            return;
+            return false;
         while (count > 0)
         {
             int bytesToSend = 0;
@@ -197,13 +221,15 @@ class Program
             }
             else if (acks.First() == -1)
             {
-                return;
+                return false;
             }
             else
             {
                 throw new Exception($"Incorrect ack | Expected: {count}, Received: {acks.First()}");
             }
         }
+
+        return true;
     }
 
 
@@ -268,7 +294,7 @@ class Program
 
 
 
-    static void SendImage3Bit(byte[] img, int height, int width)
+    static bool SendImage3Bit(byte[] img, int height, int width)
     {
         byte[] heightAsBytes = BitConverter.GetBytes((ushort)height);
         byte[] widthAsBytes = BitConverter.GetBytes((ushort)width);
@@ -280,7 +306,7 @@ class Program
 
         // establish communication with receiving controller (send flag)
         if (SendInitFlag(inkplateFlagBytesCount, true) == false)
-            return;
+            return false;
         byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
         inkplateFlag[0] = IPImage3BitFlag;
         inkplateFlag[1] = heightAsBytes[0];
@@ -296,7 +322,7 @@ class Program
         int payloadCount = 0;
         int count = img.Length;
         if (SendInitFlag(count) == false)
-            return;
+            return false;
         while (count > 0)
         {
             int bytesToSend = 0;
@@ -317,13 +343,15 @@ class Program
             }
             else if (acks.First() == -1)
             {
-                return;
+                return false;
             }
             else
             {
                 throw new Exception($"Incorrect ack | Expected: {count}, Received: {acks.First()}");
             }
         }
+
+        return true;
     }
 
 
@@ -537,6 +565,8 @@ class Program
         port.DataBits = dataBits;
         port.Parity = parity;
         port.StopBits = stopBits;
+        port.Handshake = Handshake.None;
+        port.RtsEnable = true;
 
         return port;
     }
@@ -606,42 +636,30 @@ class Program
 
     static void ReadFromArduino()
     {
-        try
+        if (transmitterPort.BytesToRead >= flagBytesCount)
         {
-            while (true)
+            byte[] flag = new byte[flagBytesCount];
+            transmitterPort.Read(flag, 0, flag.Length);
+
+            if (flag[0] == stringFlag)
             {
-                if (transmitterPort.BytesToRead >= flagBytesCount)
-                {
-                    byte[] flag = new byte[flagBytesCount];
-                    transmitterPort.Read(flag, 0, flag.Length);
-
-                    if (flag[0] == stringFlag)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        string dataReceived = transmitterPort.ReadLine();
-                        Console.WriteLine("Transmitter: " + dataReceived);
-                        Console.ForegroundColor = ConsoleColor.White;
-                    }
-                    else if (flag[0] == ackFlag)
-                    {
-                        int payloadCount = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
-                        acks.AddLast(payloadCount); // save ack in queue
-                    }
-                    else if (flag[0] == nakFlag)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine("NAK received");
-                        Console.ForegroundColor = ConsoleColor.White;
-                        acks.AddLast(-1); // save nak in queue
-                    }
-                }
-
+                Console.ForegroundColor = ConsoleColor.Red;
+                string dataReceived = transmitterPort.ReadLine();
+                Console.WriteLine("Transmitter: " + dataReceived);
+                Console.ForegroundColor = ConsoleColor.White;
             }
-        }
-        
-        catch (Exception ex)
-        {
-            Console.WriteLine("Error reading from Arduino: " + ex.Message);
+            else if (flag[0] == ackFlag)
+            {
+                int payloadCount = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
+                acks.AddLast(payloadCount); // save ack in queue
+            }
+            else if (flag[0] == nakFlag)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("NAK received");
+                Console.ForegroundColor = ConsoleColor.White;
+                acks.AddLast(-1); // save nak in queue
+            }
         }
     }
 }
