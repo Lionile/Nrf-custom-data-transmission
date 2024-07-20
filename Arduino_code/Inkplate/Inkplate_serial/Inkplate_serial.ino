@@ -50,10 +50,11 @@ void loop() {
 
     byte flag[flagBytesCount];
     Serial2.readBytes(flag, sizeof(flag));
-
+    Serial.println("Received packet:");
+    printAsHex(flag, sizeof(flag));
     // Choose the next step depending on what type of message is transmitting
     if (flag[0] == transmitBytesFlag) {
-
+      Serial.println("Receiving bytes flag");
       // read second, third, fourth and fifth byte as integer and call transmitBytes
       receiveBytes(((unsigned long)flag[1] << 24) | ((unsigned long)flag[2] << 16)
                    | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4]);

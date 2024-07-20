@@ -32,12 +32,12 @@ const uint8_t address[] = "00050";
 const unsigned int flagBytesCount = 5;
 const unsigned int payloadSize = 30; // need 2 bytes free for payloadCount
 const byte transmitBytesFlag = 0x01; // [0] - 0x01, [1,...,4] - byte count
-const byte transmitBytesWakeFlag = 0x02; // [0] - 0x01, [1,...,4] - byte count -> before sending the data, wakes up the receiver
+const byte transmitBytesWakeFlag = 0x02; // [0] - 0x02, [1,...,4] - byte count -> before sending the data, wakes up the receiver
 const byte ackFlag = 0xFF; // acknoledgement
 const byte nakFlag = 0x00; // negative acknoledgement
 const String wakeMessage = "awake";
-const int sleep_time = 2; // total sleep time: sleep_time * 8 seconds
-const int sleep_timeout = 3500; // how long will the receiver wait for a message before going to sleep
+const int sleep_time = 1; // total sleep time: sleep_time * 8 seconds
+const int sleep_timeout = 5000; // how long will the receiver wait for a message before going to sleep
 unsigned long last_sleep_time = 0; // when the receiver last woke up
 
 bool waitForWake(int timeout = 1000);
