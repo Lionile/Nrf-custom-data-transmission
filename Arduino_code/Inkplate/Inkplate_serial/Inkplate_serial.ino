@@ -22,6 +22,14 @@ const String wakeMessage = "awake";
 // TODO: currently, when the inkplate goes to sleep, it doesn't wake up fast enough to get the needed data
 
 void setup() {
+  // send wakeup ack (pull gpio 14 high)
+  delay(10);
+  pinMode(WAKE_PIN, OUTPUT);
+  digitalWrite(WAKE_PIN, HIGH);
+  delay(1);
+  digitalWrite(WAKE_PIN, LOW);
+
+  Serial2.setRxBufferSize(512);
   Serial2.begin(1000000, SERIAL_8N1, 12, 13);  //rx, tx
   Serial.begin(2000000);
   display.begin();         // Init library (you should call this function ONLY ONCE)
@@ -35,12 +43,12 @@ void setup() {
   delay(5000);*/
 
   Serial.println("\n" + wakeMessage);
-  Serial2.print(wakeMessage); // to signal the nrf receiver
+  Serial2.println(wakeMessage); // to signal the nrf receiver
   Serial2.flush();
   Serial2.println(); // to signal that it is awake
 
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_14, 1); // GPIO_NUM_X needs to be the same as WAKE_PIN!!!
-  //pinMode(WAKE_PIN, INPUT_PULLDOWN);
+  pinMode(WAKE_PIN, INPUT_PULLDOWN);
   //attachInterrupt(digitalPinToInterrupt(WAKE_PIN), wakeUp, HIGH);
   wakeStart = millis();
 }
@@ -94,29 +102,39 @@ void wakeUp(){
 }
 
 void receiveBytes(unsigned long count) {
+  /*esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_EXT0);
+  pinMode(WAKE_PIN, OUTPUT);*/
   Serial.println("Receiving " + String(count) + " bytes");
   while (count > 0) {
     int bytesToReceive = 0;
-    // Take at most a 32 byte chunk
-    if (count > 32)
-      bytesToReceive = 32;
+    // Take at most a 30 byte chunk
+    if (count > 30)
+      bytesToReceive = 30;
     else
       bytesToReceive = count;
 
     byte data[bytesToReceive];
     
+    digitalWrite(WAKE_PIN, HIGH);
     unsigned long startTime = millis();
     while (Serial2.available() < bytesToReceive){
       if (millis() - startTime >= 1000) {
         Serial.println(F("Transmission timed out"));
+        /*esp_sleep_enable_ext0_wakeup(GPIO_NUM_14, 1);
+        digitalWrite(WAKE_PIN, LOW);
+        pinMode(WAKE_PIN, INPUT_PULLDOWN);*/
         return; // or any other action you want to take when canceling the transmission
       }
     }
+    digitalWrite(WAKE_PIN, LOW);
 
-    Serial2.readBytes(data, sizeof(data));
-    printAsHex(data, sizeof(data));
+    Serial2.readBytes(data, bytesToReceive);
+    printAsHex(data, bytesToReceive);
     count -= bytesToReceive;
   }
+  /*esp_sleep_enable_ext0_wakeup(GPIO_NUM_14, 1);
+  digitalWrite(WAKE_PIN, LOW);
+  pinMode(WAKE_PIN, INPUT_PULLDOWN);*/
 }
 
 void receiveImage3Bit(int height, int width) {
@@ -127,8 +145,8 @@ void receiveImage3Bit(int height, int width) {
   while (count > 0) {
     int bytesToReceive = 0;
     // Take at most a 32 byte chunk
-    if (count > 32)
-      bytesToReceive = 32;
+    if (count > 30)
+      bytesToReceive = 30;
     else
       bytesToReceive = count;
 
@@ -142,8 +160,8 @@ void receiveImage3Bit(int height, int width) {
     }
 
     Serial2.readBytes(data, sizeof(data));
-    // for each pixel received, save it to the buffer
 
+    // for each pixel received, save it to the buffer
     for (int i = 0; i < bytesToReceive; i++) {
       int bufferIndex = total - count + i;
       int x = (bufferIndex * 2) % width;

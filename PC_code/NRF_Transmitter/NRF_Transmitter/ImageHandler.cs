@@ -53,14 +53,14 @@ namespace NRF_Transmitter
                 {
                     if ((i * height + j) % 2 == 0)
                     {
-                        byte pixel = (byte)(((bitmap3Bit[(i * width + j) / 2] >> 4) >> 1) & 0x0F);
+                        byte pixel = (byte)(((bitmap3Bit[(i * width + j) / 2] >> 4)) & 0x0F);
                         byte intensity = (byte)(pixel * 255 / 7);
 
                         image[j, i] = new Rgba32(intensity, intensity, intensity);
                     }
                     else
                     {
-                        byte pixel = (byte)((bitmap3Bit[(i * width + j) / 2] & 0x0F) >> 1);
+                        byte pixel = (byte)((bitmap3Bit[(i * width + j) / 2] & 0x0F));
                         byte intensity = (byte)(pixel * 255 / 7);
 
                         image[j, i] = new Rgba32(intensity, intensity, intensity);

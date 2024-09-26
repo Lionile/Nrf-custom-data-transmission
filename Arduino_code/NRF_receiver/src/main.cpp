@@ -115,7 +115,7 @@ void loop() {
     radio.flush_tx(); // clear the tx buffer
   }
 
-  if(millis() - last_sleep_time >= sleep_timeout){
+  /*if(millis() - last_sleep_time >= sleep_timeout){
     DEBUG_PRINTLN("Going to sleep");
     digitalWrite(nrf_power_pin, HIGH);
     delay(2); //wait for everything to finish
@@ -126,7 +126,7 @@ void loop() {
     digitalWrite(nrf_power_pin, LOW);
     setupRadio();
     last_sleep_time = millis();
-  }
+  }*/
 }
 
 
@@ -134,7 +134,19 @@ void loop() {
 // waits until receiving controller sends wake signal
 // returns true if wake signal is received, false otherwise
 bool waitForWake(int timeout = 1000){
-  char buffer[sizeof(wakeMessage)];
+  pinMode(RECEIVER_WAKE_PIN, INPUT);
+  
+  unsigned long startTime = millis();
+  while(millis() - startTime < timeout){
+    if(digitalRead(RECEIVER_WAKE_PIN) == HIGH){
+      pinMode(RECEIVER_WAKE_PIN, OUTPUT);
+      digitalWrite(RECEIVER_WAKE_PIN, LOW);
+      return true;
+    }
+  }
+
+  // old, waits for wake signal on serial
+  /*char buffer[sizeof(wakeMessage)];
   int index = 0;
 
   unsigned long startTime = millis();
@@ -155,7 +167,7 @@ bool waitForWake(int timeout = 1000){
         }
       }
     }
-  }
+  }*/
 
   return false;
 }

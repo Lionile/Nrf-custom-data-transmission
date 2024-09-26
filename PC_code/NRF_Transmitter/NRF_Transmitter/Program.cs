@@ -8,13 +8,13 @@ using System.Text;
 class Program
 {
     private static readonly string myPictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-    private static readonly string imgFilename = myPictures + "\\grayscale test images\\sunset.png";
+    private static readonly string imgFilename = myPictures + "\\grayscale test images\\sunset.jpg";
     private static readonly string newFilename = myPictures + "\\grayscale test images\\changed.png";
     private static readonly string txtFilename = myPictures + "\\grayscale test images\\byteMap.txt";
     private static readonly string receivedImgFilename = myPictures + "\\grayscale test images\\received images\\received.png";
     private static readonly string receivedTxtFilename = myPictures + "\\grayscale test images\\received images\\byteMap.txt";
 
-    private const string transmitterCOM = "COM23";
+    private const string transmitterCOM = "COM4";
     private const string receiverCOM = "COM11";
 
     private const int baudRate = 1000000;
@@ -592,6 +592,7 @@ class Program
         image.ConvertToGrayscale();
         image.AddDither();
         image.ResizeForInklpate();
+        image.ConvertToGrayscale(); // need to convert again because dither changes colour
         image.Save(newFilename);
         image.WriteAsByteMatrixToTextFile(txtFilename);
 
