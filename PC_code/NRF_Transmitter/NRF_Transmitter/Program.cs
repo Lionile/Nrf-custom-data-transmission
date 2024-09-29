@@ -1,14 +1,14 @@
 ﻿using NRF_Transmitter;
-using System.IO.Ports;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using System.Text.RegularExpressions;
+using System.IO.Ports;
 using System.Text;
+using System.Text.RegularExpressions;
 
 class Program
 {
     private static readonly string myPictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-    private static readonly string imgFilename = myPictures + "\\grayscale test images\\sunset.jpg";
+    private static readonly string imgFilename = myPictures + "\\grayscale test images\\test1.png";
     private static readonly string newFilename = myPictures + "\\grayscale test images\\changed.png";
     private static readonly string txtFilename = myPictures + "\\grayscale test images\\byteMap.txt";
     private static readonly string receivedImgFilename = myPictures + "\\grayscale test images\\received images\\received.png";
@@ -64,13 +64,16 @@ class Program
 
                 if (input.ToLower().Equals("sendimg"))
                 {
+                    acks.Clear();
                     var watch = System.Diagnostics.Stopwatch.StartNew();
                     SendImage(img);
                     var elapsedMs = watch.ElapsedMilliseconds;
                     Console.WriteLine($"Time taken to send image: {elapsedMs}ms");
+                    acks.Clear();
                 }
                 else if (Regex.IsMatch(input, @"^\s*sendimg3\s*(cont)?\s*$", RegexOptions.IgnoreCase))
                 {
+                    acks.Clear();
                     if (input.Contains("cont")) // cont - continuous sending
                     {
                         while (true)
@@ -86,9 +89,11 @@ class Program
                     {
                         SendImage3Bit(img3Bit, MyImageExtensions.inkplateHeight, MyImageExtensions.inkplateWidth);
                     }
+                    acks.Clear();
                 }
                 else if (Regex.IsMatch(input, @"^\s*send \d+\s*(cont)?\s*$", RegexOptions.IgnoreCase)) // ex. send 5, or send   30...
                 {
+                    acks.Clear();
                     int byteCount = Convert.ToInt32(input.Trim().Split(" ")[1]);
                     byte[] data = GetTestBytes(byteCount);
                     Console.Write("Sent: ");
@@ -112,6 +117,7 @@ class Program
                     {
                         SendByteArray(data);
                     }
+                    acks.Clear();
                 }
                 /*else if (Regex.IsMatch(input, @"\s*send [\w\s]+"))
                 {
@@ -166,6 +172,12 @@ class Program
             return true;
         }
 
+        Console.WriteLine("Wrong ACK: " + acks.First().ToString());
+        Console.WriteLine("All acks:");
+        for (int i = 0; i < acks.Count; i++)
+        {
+            Console.WriteLine(acks.ElementAt(i));
+        }
         return false;
     }
 
@@ -179,20 +191,25 @@ class Program
         byte[] dataSize = BitConverter.GetBytes(data.Length);
         Array.Reverse(dataSize); // little endian
 
-        // establish communication (send flag)
-        if (SendInitFlag(inkplateFlagBytesCount, true) == false)
-            return false;
-        byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
-        inkplateFlag[0] = IPBytesFlag;
-        inkplateFlag[1] = dataSize[0];
-        inkplateFlag[2] = dataSize[1];
-        inkplateFlag[3] = dataSize[2];
-        inkplateFlag[4] = dataSize[3];
-
+        // establish communication with inkplate (send flag)
         if (sendFlag)
         {
+            if (SendInitFlag(inkplateFlagBytesCount, true) == false)
+                return false;
+            byte[] inkplateFlag = new byte[inkplateFlagBytesCount];
+            inkplateFlag[0] = IPBytesFlag;
+            inkplateFlag[1] = dataSize[0];
+            inkplateFlag[2] = dataSize[1];
+            inkplateFlag[3] = dataSize[2];
+            inkplateFlag[4] = dataSize[3];
+
             transmitterPort.Write(inkplateFlag, 0, inkplateFlag.Length);
-            Thread.Sleep(5);
+            while (acks.Count == 0) ;
+            if (acks.First() != 0)
+            {
+                Console.WriteLine("Wrong ACK: " + acks.First().ToString());
+                return false;
+            }
         }
 
 
@@ -315,7 +332,12 @@ class Program
         inkplateFlag[4] = widthAsBytes[1];
 
         transmitterPort.Write(inkplateFlag, 0, inkplateFlag.Length);
-        Thread.Sleep(5);
+        while (acks.Count == 0) ;
+        if (acks.First() != 0)
+        {
+            Console.WriteLine("Wrong ACK: " + acks.First().ToString());
+            return false;
+        }
 
         // start sending data
         acks.Clear();
@@ -653,6 +675,7 @@ class Program
             {
                 int payloadCount = (flag[1] << 24) | (flag[2] << 16) | (flag[3] << 8) | flag[4];
                 acks.AddLast(payloadCount); // save ack in queue
+                Console.WriteLine($"ACK: {payloadCount}");
             }
             else if (flag[0] == nakFlag)
             {

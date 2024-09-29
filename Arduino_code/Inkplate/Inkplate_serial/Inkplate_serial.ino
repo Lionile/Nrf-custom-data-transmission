@@ -22,13 +22,6 @@ const String wakeMessage = "awake";
 // TODO: currently, when the inkplate goes to sleep, it doesn't wake up fast enough to get the needed data
 
 void setup() {
-  // send wakeup ack (pull gpio 14 high)
-  delay(10);
-  pinMode(WAKE_PIN, OUTPUT);
-  digitalWrite(WAKE_PIN, HIGH);
-  delay(1);
-  digitalWrite(WAKE_PIN, LOW);
-
   Serial2.setRxBufferSize(512);
   Serial2.begin(1000000, SERIAL_8N1, 12, 13);  //rx, tx
   Serial.begin(2000000);
@@ -47,6 +40,12 @@ void setup() {
   Serial2.flush();
   Serial2.println(); // to signal that it is awake
 
+  // send wakeup ack (pull gpio 14 high)
+  pinMode(WAKE_PIN, OUTPUT);
+  digitalWrite(WAKE_PIN, HIGH);
+  delay(5);
+  digitalWrite(WAKE_PIN, LOW);
+
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_14, 1); // GPIO_NUM_X needs to be the same as WAKE_PIN!!!
   pinMode(WAKE_PIN, INPUT_PULLDOWN);
   //attachInterrupt(digitalPinToInterrupt(WAKE_PIN), wakeUp, HIGH);
@@ -54,7 +53,7 @@ void setup() {
 }
 
 void loop() {
-  if (Serial2.available()) {
+  if (Serial2.available() >= flagBytesCount) {
 
     byte flag[flagBytesCount];
     Serial2.readBytes(flag, sizeof(flag));
@@ -102,8 +101,6 @@ void wakeUp(){
 }
 
 void receiveBytes(unsigned long count) {
-  /*esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_EXT0);
-  pinMode(WAKE_PIN, OUTPUT);*/
   Serial.println("Receiving " + String(count) + " bytes");
   while (count > 0) {
     int bytesToReceive = 0;
@@ -120,10 +117,7 @@ void receiveBytes(unsigned long count) {
     while (Serial2.available() < bytesToReceive){
       if (millis() - startTime >= 1000) {
         Serial.println(F("Transmission timed out"));
-        /*esp_sleep_enable_ext0_wakeup(GPIO_NUM_14, 1);
-        digitalWrite(WAKE_PIN, LOW);
-        pinMode(WAKE_PIN, INPUT_PULLDOWN);*/
-        return; // or any other action you want to take when canceling the transmission
+        return;
       }
     }
     digitalWrite(WAKE_PIN, LOW);
@@ -132,9 +126,6 @@ void receiveBytes(unsigned long count) {
     printAsHex(data, bytesToReceive);
     count -= bytesToReceive;
   }
-  /*esp_sleep_enable_ext0_wakeup(GPIO_NUM_14, 1);
-  digitalWrite(WAKE_PIN, LOW);
-  pinMode(WAKE_PIN, INPUT_PULLDOWN);*/
 }
 
 void receiveImage3Bit(int height, int width) {

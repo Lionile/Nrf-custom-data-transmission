@@ -1,10 +1,12 @@
 #include <Arduino.h>
 
+#include <SoftwareSerial.h>
 #include <SPI.h>
 #include <RF24.h>
 #include "LowPower.h"
 
 //#define debug
+//#define debug_soft_serial
 
 #define ARG_COUNT(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, COUNT, ...) COUNT
 #define COUNT_ARGS(...) ARG_COUNT(__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
@@ -13,6 +15,11 @@
   #define DEBUG_PRINTLN(x) Serial.println(x)
   #define DEBUG_PRINT_1(x) Serial.print(x)
   #define DEBUG_PRINT_2(x, y) Serial.print(x, y)
+#elif defined(debug_soft_serial)
+  SoftwareSerial Serial2(9, 10); // RX, TX
+  #define DEBUG_PRINTLN(x) Serial2.println(x)
+  #define DEBUG_PRINT_1(x) Serial2.print(x)
+  #define DEBUG_PRINT_2(x, y) Serial2.print(x, y)
 #else
   #define DEBUG_PRINTLN(x)
   #define DEBUG_PRINT_1(x)
@@ -40,7 +47,7 @@ const int sleep_time = 1; // total sleep time: sleep_time * 8 seconds
 const int sleep_timeout = 5000; // how long will the receiver wait for a message before going to sleep
 unsigned long last_sleep_time = 0; // when the receiver last woke up
 
-bool waitForWake(int timeout = 1000);
+bool waitForWake(unsigned long timeout = 1000);
 void receiveInterrupt();
 void wakeReceiver();
 bool sendAck(unsigned long payloadCount);
@@ -60,6 +67,8 @@ void setup() {
   Serial1.begin(1000000);
   #ifdef debug
     Serial.begin(1000000);
+  #elif defined(debug_soft_serial)
+    Serial2.begin(115200);
   #endif
 
   setupRadio();
@@ -75,7 +84,7 @@ void setupRadio(){
   radio.setPALevel(RF24_PA_LOW);
   radio.enableDynamicPayloads();
   radio.enableDynamicAck();
-  radio.setChannel(85);
+  radio.setChannel(100);
   radio.openWritingPipe(address);
   radio.openReadingPipe(1, address);  // using pipe 1
   radio.startListening(); // put radio in RX mode
@@ -92,7 +101,8 @@ void loop() {
                 | ((unsigned long)flag[3] << 8) | (unsigned long)flag[4];
       
       bool report = sendAck(count);
-      
+      (void)report; // suppress unused variable warning
+
       receiveBytes(count);
     }
     else if(flag[0] == transmitBytesWakeFlag){
@@ -106,8 +116,13 @@ void loop() {
         DEBUG_PRINTLN("Wake signal not received");
         return;
       }
+      else{
+        DEBUG_PRINTLN("Wake signal received");
+      }
+
       bool report = sendAck(count);
-      
+      (void)report; // suppress unused variable warning
+
       receiveBytes(count);
     }
 
@@ -115,7 +130,7 @@ void loop() {
     radio.flush_tx(); // clear the tx buffer
   }
 
-  /*if(millis() - last_sleep_time >= sleep_timeout){
+  if(millis() - last_sleep_time >= sleep_timeout){
     DEBUG_PRINTLN("Going to sleep");
     digitalWrite(nrf_power_pin, HIGH);
     delay(2); //wait for everything to finish
@@ -126,48 +141,32 @@ void loop() {
     digitalWrite(nrf_power_pin, LOW);
     setupRadio();
     last_sleep_time = millis();
-  }*/
+  }
 }
 
 
 
 // waits until receiving controller sends wake signal
 // returns true if wake signal is received, false otherwise
-bool waitForWake(int timeout = 1000){
+bool waitForWake(unsigned long timeout){
   pinMode(RECEIVER_WAKE_PIN, INPUT);
   
   unsigned long startTime = millis();
   while(millis() - startTime < timeout){
+    // wait for wake signal to be set high
     if(digitalRead(RECEIVER_WAKE_PIN) == HIGH){
-      pinMode(RECEIVER_WAKE_PIN, OUTPUT);
-      digitalWrite(RECEIVER_WAKE_PIN, LOW);
-      return true;
-    }
-  }
-
-  // old, waits for wake signal on serial
-  /*char buffer[sizeof(wakeMessage)];
-  int index = 0;
-
-  unsigned long startTime = millis();
-  while(millis() - startTime < timeout){
-    if(Serial1.available()){
-      buffer[index] = Serial1.read();
-      index = (index + 1) % 5;
-
-      for (int i = 0; i < sizeof(wakeMessage); i++) {
-        char temp[sizeof(wakeMessage) + 1]; // +1 for null terminator
-        for (int j = 0; j < 5; j++) {
-          temp[j] = buffer[(i + j) % 5];
-        }
-        temp[5] = '\0';
-
-        if (strcmp(temp, wakeMessage.c_str()) == 0) {
+      while(millis() - startTime < timeout){
+        // wait for wake signal to be set low (receiver is ready)
+        if(digitalRead(RECEIVER_WAKE_PIN) == LOW){
+          pinMode(RECEIVER_WAKE_PIN, OUTPUT);
+          digitalWrite(RECEIVER_WAKE_PIN, LOW);
           return true;
         }
       }
     }
-  }*/
+  }
+
+  pinMode(RECEIVER_WAKE_PIN, OUTPUT);
 
   return false;
 }
@@ -204,7 +203,7 @@ bool sendAck(unsigned long payloadCount){
 
 void receiveBytes(unsigned long count){
   unsigned long payloadCount = 0; // current payload index
-
+  DEBUG_PRINTLN("Receiving" + String(count) + "bytes");
   // Keep receiving bytes until you get all of it
   while(count > 0){
     int bytesToReceive = 0;

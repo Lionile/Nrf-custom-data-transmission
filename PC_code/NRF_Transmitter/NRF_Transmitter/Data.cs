@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace NRF_Transmitter
+﻿namespace NRF_Transmitter
 {
     public static class Data
     {

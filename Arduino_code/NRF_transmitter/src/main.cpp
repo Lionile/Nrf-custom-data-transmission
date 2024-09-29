@@ -8,6 +8,7 @@
 #ifdef debug
   #define DEBUG_PRINTLN(x) { \
     Serial.write(transmitStringFlagMessage, sizeof(transmitStringFlagMessage)); \
+    Serial.flush(); \
     Serial.println(x); \
   }
 #else
@@ -32,11 +33,14 @@ void transmitBytes(unsigned long count);
 void printAsHex(byte data[], int arrSize);
 void resetRadio();
 void sendNak(unsigned long count);
-bool sendPayload(byte data[], int size, int timeout);
-bool waitForAck(int timeout = 100);
+bool sendPayload(byte data[], int size, unsigned long timeout);
+bool waitForAck(unsigned long timeout = 100);
 
 
 void setup() {
+  pinMode(5, OUTPUT);
+  digitalWrite(5, LOW);
+
   transmitStringFlagMessage[0] = stringFlag;
 
   Serial.begin(1000000);
@@ -45,7 +49,7 @@ void setup() {
   radio.setPALevel(RF24_PA_LOW); // RF24_PA_MAX is default.
   radio.enableDynamicPayloads();
   radio.enableDynamicAck();
-  radio.setChannel(85);
+  radio.setChannel(100);
   radio.openWritingPipe(address);
   radio.openReadingPipe(1, address);
   radio.stopListening(); // put radio in TX mode
@@ -137,6 +141,7 @@ void sendAck(unsigned long count){
   ackFlagMessage[3] = (byte)(count >> 8);
   ackFlagMessage[4] = (byte)(count & 0xFF);
   Serial.write(ackFlagMessage, sizeof(ackFlagMessage));
+  Serial.flush();
 }
 
 
@@ -149,13 +154,14 @@ void sendNak(unsigned long count){
   nakFlagMessage[3] = (byte)(count >> 8);
   nakFlagMessage[4] = (byte)(count & 0xFF);
   Serial.write(nakFlagMessage, sizeof(nakFlagMessage));
+  Serial.flush();
 }
 
 
-bool sendPayload(byte data[], int size, int timeout = 300){
+bool sendPayload(byte data[], int size, unsigned long timeout = 300){
   unsigned long send_timeout_start = millis();
   bool sent = radio.write(data, size);
-  while(!sent && millis() - send_timeout_start < timeout){
+  while(!sent && ((millis() - send_timeout_start) < timeout)){
     delay(1);
     DEBUG_PRINTLN("failed to send payload");
     sent = radio.write(data, size);
@@ -167,7 +173,7 @@ bool sendPayload(byte data[], int size, int timeout = 300){
 }
 
 
-bool waitForAck(int timeout = 100){
+bool waitForAck(unsigned long timeout){
   radio.startListening();         // put in RX mode
   unsigned long ack_timeout_start = millis();
   while (!radio.available()) {             // wait for response
@@ -185,7 +191,7 @@ bool waitForAck(int timeout = 100){
 
 
 void transmitBytes(unsigned long count){
-  DEBUG_PRINTLN("Transmitting bytes");
+  DEBUG_PRINTLN("Transmitting " + String(count) + " bytes");
   unsigned long payloadCount = 0; // current payload index
   // Keep receiving bytes until you get all of it
   while(count > 0){
@@ -202,11 +208,14 @@ void transmitBytes(unsigned long count){
     // only wait for a certain ammount of time before canceling transmission
     unsigned long start_waiting = millis();
     while (Serial.available() < bytesToSend) {
+      digitalWrite(5, HIGH);
       if (millis() - start_waiting > 1000) {
-        DEBUG_PRINTLN("Transmission canceled");
+        DEBUG_PRINTLN("Transmission canceled. Serial bytec: " + String(Serial.available()) + " bytesToSend: " + String(bytesToSend));
+        digitalWrite(5, LOW);
         return;
       }
     }
+    digitalWrite(5, LOW);
 
     Serial.readBytes(data, bytesToSend);
     data[bytesToSend] = (byte)(payloadCount >> 8);
